@@ -1,0 +1,326 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'monikhoku88@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isNumber(val) {
+      return val is int || val is float;
+    }
+
+    function isValidSyncedLink(data) {
+      return data.userId is string &&
+        data.userId == request.auth.uid &&
+        data.title is string &&
+        data.title.size() >= 1 &&
+        data.title.size() <= 120 &&
+        data.url is string &&
+        data.url.size() >= 8 &&
+        data.url.size() <= 1000 &&
+        data.url.matches('^https?://.*$') &&
+        data.kind is string &&
+        data.kind in ['bookmark', 'home_app', 'history'] &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidSessionMonitor(data) {
+      return data.userId is string &&
+        data.userId == request.auth.uid &&
+        data.siteHost is string &&
+        data.siteHost.size() >= 1 &&
+        data.siteHost.size() <= 120 &&
+        data.guardEnabled is bool &&
+        data.alertLevel is string &&
+        data.alertLevel in ['OFF', 'SAFE', 'APPROACHING_LIMIT', 'LIMIT_REACHED'] &&
+        data.elapsedMinutes is int &&
+        data.elapsedMinutes >= 0 &&
+        data.elapsedMinutes <= 100000 &&
+        data.timeLimitMinutes is int &&
+        data.timeLimitMinutes >= 1 &&
+        data.timeLimitMinutes <= 1440 &&
+        isNumber(data.budgetLimit) &&
+        data.budgetLimit >= 0 &&
+        data.budgetLimit <= 1000000000 &&
+        data.currencyLabel is string &&
+        data.currencyLabel.size() >= 1 &&
+        data.currencyLabel.size() <= 10 &&
+        data.totalRounds is int &&
+        data.totalRounds >= 0 &&
+        data.totalRounds <= 1000000 &&
+        data.winsCount is int &&
+        data.winsCount >= 0 &&
+        data.winsCount <= data.totalRounds &&
+        isNumber(data.totalWagered) &&
+        data.totalWagered >= 0 &&
+        data.totalWagered <= 1000000000 &&
+        isNumber(data.totalReturned) &&
+        data.totalReturned >= 0 &&
+        data.totalReturned <= 1000000000 &&
+        isNumber(data.netProfit) &&
+        data.netProfit >= -1000000000 &&
+        data.netProfit <= 1000000000 &&
+        isNumber(data.averageCrashMultiplier) &&
+        data.averageCrashMultiplier >= 0 &&
+        data.averageCrashMultiplier <= 1000000 &&
+        isNumber(data.maxCrashMultiplier) &&
+        data.maxCrashMultiplier >= 0 &&
+        data.maxCrashMultiplier <= 1000000 &&
+        data.isMonitoringActive is bool &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidSessionRound(data) {
+      return data.userId is string &&
+        data.userId == request.auth.uid &&
+        data.siteHost is string &&
+        data.siteHost.size() >= 1 &&
+        data.siteHost.size() <= 120 &&
+        isNumber(data.betAmount) &&
+        data.betAmount >= 0 &&
+        data.betAmount <= 1000000000 &&
+        isNumber(data.crashMultiplier) &&
+        data.crashMultiplier >= 1.0 &&
+        data.crashMultiplier <= 1000000 &&
+        isNumber(data.cashoutMultiplier) &&
+        data.cashoutMultiplier >= 0 &&
+        data.cashoutMultiplier <= 1000000 &&
+        isNumber(data.netProfit) &&
+        data.netProfit >= -1000000000 &&
+        data.netProfit <= 1000000000 &&
+        data.note is string &&
+        data.note.size() <= 120 &&
+        data.clientTimestampMs is int &&
+        data.clientTimestampMs >= 0 &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidAdminConfig(data) {
+      return data.maintenanceMode is bool &&
+        data.strictTorRequired is bool &&
+        data.remoteTelemetryEnabled is bool &&
+        data.forceAdBlockSync is bool &&
+        data.emergencyLockdown is bool &&
+        data.maintenanceBanner is string &&
+        data.maintenanceBanner.size() <= 240 &&
+        data.updatedByUid is string &&
+        data.updatedByUid == request.auth.uid &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    function isValidMaintenanceLog(data) {
+      return data.action is string &&
+        data.action.size() >= 1 &&
+        data.action.size() <= 120 &&
+        data.category is string &&
+        data.category in ['CONFIG', 'SECURITY', 'TOR_NETWORK', 'MAINTENANCE', 'AUDIT'] &&
+        data.severity is string &&
+        data.severity in ['INFO', 'WARN', 'CRITICAL'] &&
+        data.details is string &&
+        data.details.size() <= 500 &&
+        data.actorUid is string &&
+        data.actorUid.size() >= 1 &&
+        data.actorUid.size() <= 128 &&
+        data.actorEmail is string &&
+        data.actorEmail.size() <= 160 &&
+        data.clientTimestampMs is int &&
+        data.clientTimestampMs >= 0 &&
+        data.createdAt is timestamp &&
+        data.createdAt <= request.time &&
+        data.updatedAt is timestamp &&
+        data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/synced_links/{linkId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(linkId);
+      allow list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(linkId) &&
+        incoming().keys().hasAll(['userId', 'title', 'url', 'kind', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'title', 'url', 'kind', 'createdAt', 'updatedAt']) &&
+        isValidSyncedLink(incoming());
+
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(linkId) &&
+        isValidSyncedLink(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'url', 'kind', 'updatedAt']);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(linkId);
+    }
+
+    match /users/{userId}/session_monitors/{monitorId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(monitorId);
+      allow list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(monitorId) &&
+        incoming().keys().hasAll([
+          'userId', 'siteHost', 'guardEnabled', 'alertLevel', 'elapsedMinutes',
+          'timeLimitMinutes', 'budgetLimit', 'currencyLabel', 'totalRounds', 'winsCount',
+          'totalWagered', 'totalReturned', 'netProfit', 'averageCrashMultiplier',
+          'maxCrashMultiplier', 'isMonitoringActive', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'siteHost', 'guardEnabled', 'alertLevel', 'elapsedMinutes',
+          'timeLimitMinutes', 'budgetLimit', 'currencyLabel', 'totalRounds', 'winsCount',
+          'totalWagered', 'totalReturned', 'netProfit', 'averageCrashMultiplier',
+          'maxCrashMultiplier', 'isMonitoringActive', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidSessionMonitor(incoming());
+
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(monitorId) &&
+        isValidSessionMonitor(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'siteHost', 'guardEnabled', 'alertLevel', 'elapsedMinutes',
+          'timeLimitMinutes', 'budgetLimit', 'currencyLabel', 'totalRounds', 'winsCount',
+          'totalWagered', 'totalReturned', 'netProfit', 'averageCrashMultiplier',
+          'maxCrashMultiplier', 'isMonitoringActive', 'updatedAt'
+        ]);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(monitorId);
+    }
+
+    match /users/{userId}/session_rounds/{roundId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(roundId);
+      allow list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(roundId) &&
+        incoming().keys().hasAll([
+          'userId', 'siteHost', 'betAmount', 'crashMultiplier', 'cashoutMultiplier',
+          'netProfit', 'note', 'clientTimestampMs', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'siteHost', 'betAmount', 'crashMultiplier', 'cashoutMultiplier',
+          'netProfit', 'note', 'clientTimestampMs', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidSessionRound(incoming());
+
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        isValidId(roundId) &&
+        isValidSessionRound(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'siteHost', 'betAmount', 'crashMultiplier', 'cashoutMultiplier',
+          'netProfit', 'note', 'clientTimestampMs', 'updatedAt'
+        ]);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(roundId);
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && (request.auth.uid == adminUid || isAdmin()) && isValidId(adminUid);
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    match /admin_config/{configId} {
+      allow get: if isAdmin() && isValidId(configId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(configId) &&
+        incoming().keys().hasAll([
+          'maintenanceMode', 'strictTorRequired', 'remoteTelemetryEnabled',
+          'forceAdBlockSync', 'emergencyLockdown', 'maintenanceBanner',
+          'updatedByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'maintenanceMode', 'strictTorRequired', 'remoteTelemetryEnabled',
+          'forceAdBlockSync', 'emergencyLockdown', 'maintenanceBanner',
+          'updatedByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidAdminConfig(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(configId) &&
+        isValidAdminConfig(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'maintenanceMode', 'strictTorRequired', 'remoteTelemetryEnabled',
+          'forceAdBlockSync', 'emergencyLockdown', 'maintenanceBanner',
+          'updatedByUid', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    match /maintenance_logs/{logId} {
+      allow get: if isAdmin() && isValidId(logId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(logId) &&
+        incoming().keys().hasAll([
+          'action', 'category', 'severity', 'details',
+          'actorUid', 'actorEmail', 'clientTimestampMs', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'action', 'category', 'severity', 'details',
+          'actorUid', 'actorEmail', 'clientTimestampMs', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().actorUid == request.auth.uid &&
+        isValidMaintenanceLog(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(logId) &&
+        isValidMaintenanceLog(incoming()) &&
+        incoming().actorUid == existing().actorUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'action', 'category', 'severity', 'details', 'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(logId);
+    }
+  }
+}

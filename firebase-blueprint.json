@@ -1,0 +1,368 @@
+{
+  "entities": {
+    "SyncedLink": {
+      "title": "SyncedLink",
+      "description": "A clearnet bookmark or Home App shortcut synced to the authenticated user's cloud library.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display label for the bookmark or Home App shortcut."
+        },
+        "url": {
+          "type": "string",
+          "description": "Clearnet http:// or https:// destination URL."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["bookmark", "home_app", "history"],
+          "description": "Whether this item came from Bookmarks, Home Apps, or History."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written with FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated with FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "title", "url", "kind", "createdAt", "updatedAt"]
+    },
+    "SessionMonitor": {
+      "title": "SessionMonitor",
+      "description": "Real-time ongoing gaming session statistics and budget/time guard state synced per authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "siteHost": {
+          "type": "string",
+          "description": "Active clearnet host or redacted label for .onion sessions."
+        },
+        "guardEnabled": {
+          "type": "boolean",
+          "description": "Whether Session Guard alerts are active."
+        },
+        "alertLevel": {
+          "type": "string",
+          "enum": ["OFF", "SAFE", "APPROACHING_LIMIT", "LIMIT_REACHED"],
+          "description": "Current session limit alert status."
+        },
+        "elapsedMinutes": {
+          "type": "integer",
+          "description": "Elapsed session duration in minutes."
+        },
+        "timeLimitMinutes": {
+          "type": "integer",
+          "description": "Configured session time limit in minutes."
+        },
+        "budgetLimit": {
+          "type": "number",
+          "description": "Configured maximum net loss limit."
+        },
+        "currencyLabel": {
+          "type": "string",
+          "description": "Display currency code such as BDT or USD."
+        },
+        "totalRounds": {
+          "type": "integer",
+          "description": "Total completed rounds recorded in session."
+        },
+        "winsCount": {
+          "type": "integer",
+          "description": "Number of winning rounds recorded."
+        },
+        "totalWagered": {
+          "type": "number",
+          "description": "Sum of recorded wager amounts."
+        },
+        "totalReturned": {
+          "type": "number",
+          "description": "Sum of recorded payouts."
+        },
+        "netProfit": {
+          "type": "number",
+          "description": "Net profit or loss across recorded rounds."
+        },
+        "averageCrashMultiplier": {
+          "type": "number",
+          "description": "Mean crash multiplier across recorded rounds."
+        },
+        "maxCrashMultiplier": {
+          "type": "number",
+          "description": "Highest crash multiplier across recorded rounds."
+        },
+        "isMonitoringActive": {
+          "type": "boolean",
+          "description": "Whether live remote sync is actively publishing from the device."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Initial server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "siteHost",
+        "guardEnabled",
+        "alertLevel",
+        "elapsedMinutes",
+        "timeLimitMinutes",
+        "budgetLimit",
+        "currencyLabel",
+        "totalRounds",
+        "winsCount",
+        "totalWagered",
+        "totalReturned",
+        "netProfit",
+        "averageCrashMultiplier",
+        "maxCrashMultiplier",
+        "isMonitoringActive",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SessionRound": {
+      "title": "SessionRound",
+      "description": "A completed game round log synced for remote cross-device statistical monitoring.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "siteHost": {
+          "type": "string",
+          "description": "Clearnet site host or onion_redacted."
+        },
+        "betAmount": {
+          "type": "number",
+          "description": "Wagered stake for the completed round."
+        },
+        "crashMultiplier": {
+          "type": "number",
+          "description": "Observed final crash multiplier (>= 1.0)."
+        },
+        "cashoutMultiplier": {
+          "type": "number",
+          "description": "User cashout multiplier (0 if busted/lost)."
+        },
+        "netProfit": {
+          "type": "number",
+          "description": "Net round outcome."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional user note."
+        },
+        "clientTimestampMs": {
+          "type": "integer",
+          "description": "Client timestamp when round was logged."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated."
+        }
+      },
+      "required": [
+        "userId",
+        "siteHost",
+        "betAmount",
+        "crashMultiplier",
+        "cashoutMultiplier",
+        "netProfit",
+        "note",
+        "clientTimestampMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Trusted admin role registry entry keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Admin Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "description": "Verified admin email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"],
+          "description": "Assigned privilege role."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin entry was created."
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "AdminServerConfig": {
+      "title": "AdminServerConfig",
+      "description": "Server-side remote configuration toggles managed by administrators.",
+      "type": "object",
+      "properties": {
+        "maintenanceMode": {
+          "type": "boolean",
+          "description": "Whether global maintenance mode is enabled."
+        },
+        "strictTorRequired": {
+          "type": "boolean",
+          "description": "Whether strict Tor .onion routing enforcement is mandated server-side."
+        },
+        "remoteTelemetryEnabled": {
+          "type": "boolean",
+          "description": "Whether remote diagnostic telemetry streaming is enabled."
+        },
+        "forceAdBlockSync": {
+          "type": "boolean",
+          "description": "Whether clients should force-sync global ad-block filter lists."
+        },
+        "emergencyLockdown": {
+          "type": "boolean",
+          "description": "Whether emergency maximum-privacy lockdown posture is active."
+        },
+        "maintenanceBanner": {
+          "type": "string",
+          "description": "Short notice banner shown during maintenance or lockdown."
+        },
+        "updatedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator who last modified the config."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Initial server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last server update timestamp."
+        }
+      },
+      "required": [
+        "maintenanceMode",
+        "strictTorRequired",
+        "remoteTelemetryEnabled",
+        "forceAdBlockSync",
+        "emergencyLockdown",
+        "maintenanceBanner",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MaintenanceLog": {
+      "title": "MaintenanceLog",
+      "description": "Audit and maintenance event log entry recorded by administrators.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Short summary of the maintenance action."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["CONFIG", "SECURITY", "TOR_NETWORK", "MAINTENANCE", "AUDIT"],
+          "description": "Log category tag."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["INFO", "WARN", "CRITICAL"],
+          "description": "Severity level of the maintenance log."
+        },
+        "details": {
+          "type": "string",
+          "description": "Detailed operational notes."
+        },
+        "actorUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the acting administrator."
+        },
+        "actorEmail": {
+          "type": "string",
+          "description": "Email address of the acting administrator."
+        },
+        "clientTimestampMs": {
+          "type": "integer",
+          "description": "Client epoch timestamp in milliseconds for deterministic ordering."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "action",
+        "category",
+        "severity",
+        "details",
+        "actorUid",
+        "actorEmail",
+        "clientTimestampMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/synced_links/{linkId}": {
+      "schema": { "$ref": "#/entities/SyncedLink" },
+      "description": "Per-user cloud-synced bookmarks and Home App shortcuts."
+    },
+    "/users/{userId}/session_monitors/{monitorId}": {
+      "schema": { "$ref": "#/entities/SessionMonitor" },
+      "description": "Per-user real-time session statistics and guard state for remote observation."
+    },
+    "/users/{userId}/session_rounds/{roundId}": {
+      "schema": { "$ref": "#/entities/SessionRound" },
+      "description": "Per-user completed round logs synced in real time."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Trusted administrator registry keyed by Firebase Auth UID."
+    },
+    "/admin_config/{configId}": {
+      "schema": { "$ref": "#/entities/AdminServerConfig" },
+      "description": "Server-side admin configuration toggles and notices."
+    },
+    "/maintenance_logs/{logId}": {
+      "schema": { "$ref": "#/entities/MaintenanceLog" },
+      "description": "Administrator maintenance and configuration audit logs."
+    }
+  }
+}

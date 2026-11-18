@@ -1,0 +1,6 @@
+{
+  "name": "OnionShield",
+  "description": "Privacy-hardened dual-mode Android web browser supporting Surface Web and Tor/Onion SOCKS5 proxy routing with No-Script, WebRTC guard, HTTPS enforcement, fingerprint randomization, and multi-tab management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
