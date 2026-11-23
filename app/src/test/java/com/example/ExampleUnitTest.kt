@@ -367,7 +367,9 @@ class ExampleUnitTest {
         val releaseMsg = com.example.security.formatAppCheckErrorMessage(
             rawMessage = "Firebase App Check token is invalid.",
             isDebugBuild = false,
+            diagnosticDetail = "project=gen-lang-client-0814260017, tokenErr(RecaptchaException: INVALID_SITEKEY)",
         )
         assertTrue(releaseMsg.contains("Google Play Services"))
+        assertTrue(releaseMsg.contains("INVALID_SITEKEY"))
     }
 }

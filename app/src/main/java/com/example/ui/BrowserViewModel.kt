@@ -71,6 +71,7 @@ import com.example.data.repository.EncryptedSearchHistoryRepository
 import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.SessionMonitorFirestoreRepository
 import com.example.security.VaultCryptoManager
+import com.example.security.diagnoseAppCheckFailure
 import com.example.security.ensureFirebaseAndAppCheckInitialized
 import com.example.security.formatAppCheckErrorMessage
 import com.example.security.isAppCheckTokenError
@@ -2363,8 +2364,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val friendlyMsg = when {
                 isMissingFirebase ->
                     "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio."
-                isAppCheckError ->
-                    formatAppCheckErrorMessage(rawMessage)
+                isAppCheckError -> {
+                    val diagnostic = runCatching { diagnoseAppCheckFailure(getApplication()) }.getOrNull()
+                    formatAppCheckErrorMessage(rawMessage = rawMessage, diagnosticDetail = diagnostic)
+                }
                 GeminiShieldRepository.isTransientHighDemandError(e) ->
                     "Gemini Vision is briefly busy right now. Tap Analyze again."
                 rawMessage.isNotBlank() -> rawMessage

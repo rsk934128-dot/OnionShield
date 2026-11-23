@@ -8,6 +8,7 @@ import com.example.data.repository.GeminiChatMessage
 import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.PageAiContext
 import com.example.data.repository.PagePrivacyAudit
+import com.example.security.diagnoseAppCheckFailure
 import com.example.security.formatAppCheckErrorMessage
 import com.example.security.isAppCheckTokenError
 import kotlinx.coroutines.CancellationException
@@ -238,13 +239,15 @@ class GeminiAssistantViewModel(
         }
     }
 
-    private fun formatUserFacingError(error: Exception, fallback: String): String {
+    private suspend fun formatUserFacingError(error: Exception, fallback: String): String {
         val raw = error.localizedMessage?.trim().orEmpty().ifBlank { fallback }
         return when {
             raw.contains("Default FirebaseApp is not initialized", ignoreCase = true) ->
                 "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio."
-            isAppCheckTokenError(raw) ->
-                formatAppCheckErrorMessage(raw)
+            isAppCheckTokenError(raw) -> {
+                val diagnostic = runCatching { diagnoseAppCheckFailure() }.getOrNull()
+                formatAppCheckErrorMessage(rawMessage = raw, diagnosticDetail = diagnostic)
+            }
             GeminiShieldRepository.isTransientHighDemandError(error) ->
                 "Gemini servers are briefly busy right now. Tap Retry to try again."
             else -> raw
