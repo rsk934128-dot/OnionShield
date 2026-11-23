@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -70,6 +71,9 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialUnsupportedException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.data.repository.AdminClaimStatus
 import com.example.data.repository.AdminServerConfig
 import com.example.data.repository.AdminSettingsRepository
@@ -889,6 +893,12 @@ fun AdminClaimsDeniedScreen(
     }
 }
 
+private tailrec fun Context.findAdminActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findAdminActivity()
+    else -> null
+}
+
 private fun launchAdminGoogleSignIn(
     context: Context,
     credentialManager: CredentialManager,
@@ -907,7 +917,7 @@ private fun launchAdminGoogleSignIn(
 
     scope.launch {
         try {
-            val activity = context as? Activity
+            val activity = context.findAdminActivity()
                 ?: throw IllegalStateException("Google Sign-In requires an Activity context.")
             val result = credentialManager.getCredential(activity, request)
             val credential = result.credential
@@ -920,8 +930,24 @@ private fun launchAdminGoogleSignIn(
                 onError("Unexpected credential type returned.")
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.w("AdminAuth", "Google Sign-In cancelled: ${e.message}")
+            Log.w("AdminAuth", "Google Sign-In cancelled: ${e.message}", e)
             onCancelled()
+            onError(
+                "Sign-in was cancelled or dismissed by Google Play Services. Make sure a Google account is signed in on this device/emulator and try again.",
+            )
+        } catch (e: NoCredentialException) {
+            Log.w("AdminAuth", "No Google credentials available: ${e.message}", e)
+            onError(
+                "No Google account is available on this device/emulator. Add a Google account in Settings > Google (or Play Store), then retry.",
+            )
+        } catch (e: GetCredentialUnsupportedException) {
+            Log.w("AdminAuth", "Credential Manager unsupported: ${e.message}", e)
+            onError(
+                "Google Play Services Credential Manager is unavailable or outdated on this device/emulator.",
+            )
+        } catch (e: GetCredentialException) {
+            Log.e("AdminAuth", "Credential Manager sign-in error: ${e.type}", e)
+            onError(e.localizedMessage ?: "Google Sign-In failed (${e.type}).")
         } catch (e: Exception) {
             Log.e("AdminAuth", "Admin Google Sign-In failed", e)
             onError(e.localizedMessage ?: "Google Sign-In failed")

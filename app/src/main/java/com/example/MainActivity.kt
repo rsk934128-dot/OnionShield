@@ -153,6 +153,7 @@ class MainActivity : FragmentActivity() {
                         LibraryScreen(
                             bookmarks = bookmarks,
                             history = history,
+                            isTorMode = isTorMode,
                             onOpenUrl = { url -> browserViewModel.openUrlOrSearch(url) },
                             onInstallToHomeScreen = { title, url ->
                                 browserViewModel.installLinkToHomeAndMenu(this@MainActivity, title, url)
@@ -171,9 +172,11 @@ class MainActivity : FragmentActivity() {
                         DownloadsScreen(
                             downloads = downloads,
                             pendingDownload = uiState.pendingDownload,
+                            downloadFailureReasons = uiState.downloadFailureReasons,
                             onConfirmPendingDownload = browserViewModel::confirmPendingDownload,
                             onCancelPendingDownload = browserViewModel::cancelPendingDownload,
                             onRefreshDownloads = browserViewModel::refreshDownloadStatuses,
+                            onRetryDownload = browserViewModel::retryDownload,
                             onOpenOrInstallDownload = browserViewModel::openOrInstallDownloadedFile,
                             onOpenSystemDownloads = browserViewModel::openSystemDownloadsFolder,
                             onRequestDirectDownload = browserViewModel::requestDirectDownload,

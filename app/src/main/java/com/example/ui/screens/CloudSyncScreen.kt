@@ -1,9 +1,10 @@
 package com.example.ui.screens
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
+import com.example.ui.components.WebsiteLogo
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +70,9 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialUnsupportedException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -256,11 +260,23 @@ private fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
     awaitClose { removeAuthStateListener(listener) }
 }
 
-@SuppressLint("DiscouragedApi")
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+@Suppress("DiscouragedApi")
 internal fun resolveDefaultWebClientId(context: Context): String? {
-    val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+    val resId = context.resources.getIdentifier(
+        "default_web_client_id",
+        "string",
+        context.packageName,
+    )
     if (resId == 0) return null
-    return runCatching { context.getString(resId) }.getOrNull()?.takeIf { it.isNotBlank() }
+    return runCatching { context.getString(resId) }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
 }
 
 private fun attemptAutoSignIn(
@@ -325,7 +341,7 @@ private fun onGoogleSignInClicked(
 
     scope.launch {
         try {
-            val activity = context as? Activity
+            val activity = context.findActivity()
                 ?: throw IllegalStateException("Google Sign-In requires an Activity context.")
             val result = credentialManager.getCredential(activity, request)
             val credential = result.credential
@@ -340,6 +356,22 @@ private fun onGoogleSignInClicked(
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
+            onAuthError(
+                "Sign-in was cancelled or dismissed by Google Play Services. Make sure a Google account is signed in on this device/emulator and try again.",
+            )
+        } catch (e: NoCredentialException) {
+            Log.w("Auth", "No Google credentials available on device: ${e.message}", e)
+            onAuthError(
+                "No Google account is available on this device/emulator. Add a Google account in Settings > Google (or Play Store), then retry.",
+            )
+        } catch (e: GetCredentialUnsupportedException) {
+            Log.w("Auth", "Credential Manager unsupported: ${e.message}", e)
+            onAuthError(
+                "Google Play Services Credential Manager is unavailable or outdated on this device/emulator.",
+            )
+        } catch (e: GetCredentialException) {
+            Log.e("Auth", "Credential Manager sign-in error: ${e.type}", e)
+            onAuthError(e.localizedMessage ?: "Google Sign-In failed (${e.type}).")
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
             onAuthError(e.localizedMessage ?: "Google Sign-In failed")
@@ -824,16 +856,14 @@ private fun CloudSyncAuthenticatedScreen(
                                 Row(
                                     modifier = Modifier.padding(14.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    Icon(
-                                        imageVector = when {
-                                            isHomeApp -> Icons.Rounded.Language
-                                            isHistory -> Icons.Rounded.History
-                                            else -> Icons.Rounded.Bookmark
-                                        },
-                                        contentDescription = null,
-                                        tint = shieldColors.surfaceAccent,
+                                    WebsiteLogo(
+                                        url = item.url,
+                                        title = item.title,
+                                        accentColor = shieldColors.surfaceAccent,
+                                        size = 36.dp,
+                                        cornerRadius = 9.dp,
                                     )
                                     Column(
                                         modifier = Modifier.weight(1f),

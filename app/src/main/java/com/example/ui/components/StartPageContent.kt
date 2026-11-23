@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -177,8 +178,8 @@ fun StartPageContent(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Hero Banner Card
@@ -194,17 +195,17 @@ fun StartPageContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(176.dp),
+                        .heightIn(min = 104.dp),
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.img_privacy_banner_1794756388393),
                         contentDescription = "OnionShield encryption backdrop",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.matchParentSize(),
                     )
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .matchParentSize()
                             .background(
                                 Brush.horizontalGradient(
                                     colors = listOf(
@@ -217,13 +218,14 @@ fun StartPageContent(
                     )
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Surface(
                                 shape = CircleShape,
@@ -231,48 +233,24 @@ fun StartPageContent(
                                 border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f)),
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(8.dp)
+                                            .size(7.dp)
                                             .clip(CircleShape)
                                             .background(accentColor),
                                     )
                                     Text(
                                         text = if (isTor) "TOR / ONION ROUTING" else "SURFACE WEB HARDENED",
-                                        style = MaterialTheme.typography.labelMedium,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = accentColor,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                 }
                             }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "OnionShield",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )
-                            Text(
-                                text = if (isTor) {
-                                    "Traffic routed via ${config.torEndpoint}"
-                                } else {
-                                    "HTTPS Everywhere, WebRTC Guard & Tracker Shield active"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
@@ -281,110 +259,30 @@ fun StartPageContent(
                                     text = "SEED #${tab.fingerprintSeed} • ${tab.userAgentLabel}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 )
                             }
                         }
-                    }
-                }
-            }
-        }
 
-        // Internet VPN Quick-Connect & Free Web Links Strip
-        item {
-            val isVpnActive = vpnStatus is VpnTunnelStatus.Connected || vpnStatus is VpnTunnelStatus.Connecting
-            val vpnAccent = if (vpnStatus is VpnTunnelStatus.Connected) shieldColors.secureGreen else shieldColors.surfaceAccent
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 640.dp)
-                    .testTag("start_vpn_connect_card"),
-                shape = MaterialTheme.shapes.medium,
-                color = vpnAccent.copy(alpha = 0.11f),
-                border = BorderStroke(1.dp, vpnAccent.copy(alpha = 0.45f)),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Icon(
-                        imageVector = if (vpnStatus is VpnTunnelStatus.Connected) Icons.Rounded.VpnLock else Icons.Rounded.VpnKey,
-                        contentDescription = "Internet VPN",
-                        tint = vpnAccent,
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = when (vpnStatus) {
-                                is VpnTunnelStatus.Connected -> "VPN Connected (${vpnStatus.profile.badge})"
-                                is VpnTunnelStatus.Connecting -> "Connecting Encrypted VPN…"
-                                is VpnTunnelStatus.Error -> "VPN Attention Required"
-                                VpnTunnelStatus.Disconnected -> "Internet VPN Ready"
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                            color = vpnAccent,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = when (vpnStatus) {
-                                is VpnTunnelStatus.Connected ->
-                                    "Tunnel ${vpnStatus.tunnelIp} • ${vpnStatus.queriesTunneled} encrypted DNS queries"
-                                else ->
-                                    "Connect encrypted DNS-over-HTTPS VPN & browse web links freely"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.End) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isVpnActive) MaterialTheme.colorScheme.error.copy(alpha = 0.2f) else vpnAccent.copy(alpha = 0.22f),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    if (isVpnActive) {
-                                        onDisconnectVpn()
-                                    } else {
-                                        val prepare = runCatching { VpnService.prepare(context) }.getOrNull()
-                                        if (prepare != null) {
-                                            vpnConsentLauncher.launch(prepare)
-                                        } else {
-                                            onConnectVpnAfterConsent(config.vpnProfile)
-                                        }
-                                    }
-                                }
-                                .testTag("start_vpn_toggle_button"),
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .height(48.dp),
-                            ) {
-                                Text(
-                                    text = if (isVpnActive) "Disconnect" else "Connect VPN",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (isVpnActive) MaterialTheme.colorScheme.error else vpnAccent,
-                                )
-                            }
-                        }
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable(onClick = onOpenVpnHub)
-                                .height(48.dp)
-                                .padding(horizontal = 8.dp)
-                                .testTag("start_open_vpn_hub_button"),
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "Web Links Hub",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = "OnionShield",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = if (isTor) {
+                                    "Traffic routed via ${config.torEndpoint}"
+                                } else {
+                                    "HTTPS Everywhere, WebRTC Guard & Tracker Shield active"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -392,168 +290,13 @@ fun StartPageContent(
             }
         }
 
-        // Tor Proxy Status Strip (when in Tor Mode)
-        if (isTor) {
-            item {
-                TorStatusPanel(
-                    torProxyState = torProxyState,
-                    endpoint = config.torEndpoint,
-                    onTestSocket = onTestTorSocket,
-                    onConfigureProxy = onOpenSecuritySettings,
-                    modifier = Modifier.widthIn(max = 640.dp),
-                )
-            }
-        }
-
-        // Telemetry Summary Row
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 640.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                TelemetryMetricCard(
-                    label = "Ads Blocked",
-                    value = totalTrackersBlocked.toString(),
-                    icon = Icons.Rounded.Block,
-                    accent = shieldColors.secureGreen,
-                    modifier = Modifier.weight(1f),
-                )
-                TelemetryMetricCard(
-                    label = "Scripts Blocked",
-                    value = totalScriptsBlocked.toString(),
-                    icon = Icons.Rounded.CodeOff,
-                    accent = shieldColors.warningAmber,
-                    modifier = Modifier.weight(1f),
-                )
-                TelemetryMetricCard(
-                    label = "Active Shields",
-                    value = "$activeShieldCount/5",
-                    icon = Icons.Rounded.VerifiedUser,
-                    accent = accentColor,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        // Quick Security Shields Grid
+        // Home Apps & PWAs Launcher Grid (Promoted to top area for immediate access)
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 640.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Privacy & Defense Layers",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
-                    Text(
-                        text = "Configure All",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = accentColor,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onOpenSecuritySettings)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .testTag("start_configure_all_button"),
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    ShieldToggleTile(
-                        title = "No-Script",
-                        subtitle = if (config.noScriptEnabled) "JS Blocked" else "JS Allowed",
-                        enabled = config.noScriptEnabled,
-                        icon = Icons.Rounded.CodeOff,
-                        accent = accentColor,
-                        testTag = "tile_noscript",
-                        onClick = { onToggleNoScript(!config.noScriptEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ShieldToggleTile(
-                        title = "WebRTC Guard",
-                        subtitle = if (config.webRtcLeakProtectionEnabled) "IP Leak Blocked" else "Standard",
-                        enabled = config.webRtcLeakProtectionEnabled,
-                        icon = Icons.Rounded.VisibilityOff,
-                        accent = accentColor,
-                        testTag = "tile_webrtc",
-                        onClick = { onToggleWebRtc(!config.webRtcLeakProtectionEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    ShieldToggleTile(
-                        title = "HTTPS Force",
-                        subtitle = if (config.httpsEverywhereEnabled) "Upgraded" else "Permissive",
-                        enabled = config.httpsEverywhereEnabled,
-                        icon = Icons.Rounded.Https,
-                        accent = accentColor,
-                        testTag = "tile_https",
-                        onClick = { onToggleHttpsEverywhere(!config.httpsEverywhereEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ShieldToggleTile(
-                        title = "Fingerprint",
-                        subtitle = if (config.fingerprintRandomizationEnabled) "Randomized" else "Native",
-                        enabled = config.fingerprintRandomizationEnabled,
-                        icon = Icons.Rounded.Fingerprint,
-                        accent = accentColor,
-                        testTag = "tile_fingerprint",
-                        onClick = { onToggleFingerprint(!config.fingerprintRandomizationEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    ShieldToggleTile(
-                        title = "Ad Blocker",
-                        subtitle = if (config.trackerBlockerEnabled) "Ads & Pixels Blocked" else "Paused",
-                        enabled = config.trackerBlockerEnabled,
-                        icon = Icons.Rounded.Block,
-                        accent = shieldColors.secureGreen,
-                        testTag = "tile_adblock",
-                        onClick = { onToggleAdBlocker(!config.trackerBlockerEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ShieldToggleTile(
-                        title = "Popup Shield",
-                        subtitle = if (config.popupBlockerEnabled) "Popups Blocked" else "Allowed",
-                        enabled = config.popupBlockerEnabled,
-                        icon = Icons.Rounded.Shield,
-                        accent = shieldColors.secureGreen,
-                        testTag = "tile_popup_blocker",
-                        onClick = { onTogglePopupBlocker(!config.popupBlockerEnabled) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-
-        // Home Apps & PWAs Launcher Grid
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 640.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -636,23 +379,17 @@ fun StartPageContent(
                             text = "Tap + Install App to pin any website (YouTube, News, Web Apps) to Home Apps & your phone Home Screen.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         )
                     }
                 } else {
                     pinnedApps.chunked(4).forEach { rowItems ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             rowItems.forEach { app ->
                                 val tileAccent = if (app.isOnion) shieldColors.torAccent else accentColor
-                                val badgeLetters = app.title.trim()
-                                    .split(" ")
-                                    .filter { it.isNotBlank() }
-                                    .take(2)
-                                    .joinToString("") { it.first().uppercaseChar().toString() }
-                                    .ifBlank { "APP" }
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
@@ -673,7 +410,7 @@ fun StartPageContent(
                                         else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                                     ),
                                 ) {
-                                    Box(modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
+                                    Box(modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp)) {
                                         if (isEditingApps) {
                                             Row(
                                                 modifier = Modifier
@@ -704,22 +441,17 @@ fun StartPageContent(
                                                 .fillMaxWidth()
                                                 .padding(top = if (isEditingApps) 12.dp else 0.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(5.dp),
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(tileAccent.copy(alpha = 0.16f)),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Text(
-                                                    text = badgeLetters,
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = tileAccent,
-                                                )
-                                            }
+                                            WebsiteLogo(
+                                                url = app.url,
+                                                title = app.title,
+                                                accentColor = tileAccent,
+                                                size = 40.dp,
+                                                cornerRadius = 10.dp,
+                                                isOnion = app.isOnion,
+                                                allowNetworkFetch = !isTor && !app.isOnion,
+                                            )
                                             Text(
                                                 text = app.title,
                                                 style = MaterialTheme.typography.labelSmall,
@@ -738,6 +470,136 @@ fun StartPageContent(
                         }
                     }
                 }
+            }
+        }
+
+        // Internet VPN Quick-Connect & Free Web Links Strip
+        item {
+            val isVpnActive = vpnStatus is VpnTunnelStatus.Connected || vpnStatus is VpnTunnelStatus.Connecting
+            val vpnAccent = if (vpnStatus is VpnTunnelStatus.Connected) shieldColors.secureGreen else shieldColors.surfaceAccent
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 640.dp)
+                    .testTag("start_vpn_connect_card"),
+                shape = MaterialTheme.shapes.medium,
+                color = vpnAccent.copy(alpha = 0.11f),
+                border = BorderStroke(1.dp, vpnAccent.copy(alpha = 0.45f)),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (vpnStatus is VpnTunnelStatus.Connected) Icons.Rounded.VpnLock else Icons.Rounded.VpnKey,
+                            contentDescription = "Internet VPN",
+                            tint = vpnAccent,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                text = when (vpnStatus) {
+                                    is VpnTunnelStatus.Connected -> "VPN Connected (${vpnStatus.profile.badge})"
+                                    is VpnTunnelStatus.Connecting -> "Connecting Encrypted VPN…"
+                                    is VpnTunnelStatus.Error -> "VPN Attention Required"
+                                    VpnTunnelStatus.Disconnected -> "Internet VPN Ready"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = vpnAccent,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = when (vpnStatus) {
+                                    is VpnTunnelStatus.Connected ->
+                                        "Tunnel ${vpnStatus.tunnelIp} • ${vpnStatus.queriesTunneled} encrypted DNS queries"
+                                    else ->
+                                        "Encrypted DNS-over-HTTPS VPN & web links"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isVpnActive) MaterialTheme.colorScheme.error.copy(alpha = 0.2f) else vpnAccent.copy(alpha = 0.22f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (isVpnActive) {
+                                        onDisconnectVpn()
+                                    } else {
+                                        val prepare = runCatching { VpnService.prepare(context) }.getOrNull()
+                                        if (prepare != null) {
+                                            vpnConsentLauncher.launch(prepare)
+                                        } else {
+                                            onConnectVpnAfterConsent(config.vpnProfile)
+                                        }
+                                    }
+                                }
+                                .testTag("start_vpn_toggle_button"),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .height(48.dp),
+                            ) {
+                                Text(
+                                    text = if (isVpnActive) "Disconnect" else "Connect VPN",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (isVpnActive) MaterialTheme.colorScheme.error else vpnAccent,
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onOpenVpnHub)
+                                .testTag("start_open_vpn_hub_button"),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .padding(horizontal = 12.dp),
+                            ) {
+                                Text(
+                                    text = "Web Links Hub",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tor Proxy Status Strip (when in Tor Mode)
+        if (isTor) {
+            item {
+                TorStatusPanel(
+                    torProxyState = torProxyState,
+                    endpoint = config.torEndpoint,
+                    onTestSocket = onTestTorSocket,
+                    onConfigureProxy = onOpenSecuritySettings,
+                    modifier = Modifier.widthIn(max = 640.dp),
+                )
             }
         }
 
@@ -768,24 +630,19 @@ fun StartPageContent(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(linkColor.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = if (link.isOnion) Icons.Rounded.Security else Icons.Rounded.TravelExplore,
-                                    contentDescription = link.title,
-                                    tint = linkColor,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
+                            WebsiteLogo(
+                                url = link.url,
+                                title = link.title,
+                                accentColor = linkColor,
+                                size = 36.dp,
+                                cornerRadius = 10.dp,
+                                isOnion = link.isOnion,
+                                allowNetworkFetch = !isTor && !link.isOnion,
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -824,6 +681,148 @@ fun StartPageContent(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        // Telemetry Summary Row
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 640.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TelemetryMetricCard(
+                    label = "Ads Blocked",
+                    value = totalTrackersBlocked.toString(),
+                    icon = Icons.Rounded.Block,
+                    accent = shieldColors.secureGreen,
+                    modifier = Modifier.weight(1f),
+                )
+                TelemetryMetricCard(
+                    label = "Scripts Blocked",
+                    value = totalScriptsBlocked.toString(),
+                    icon = Icons.Rounded.CodeOff,
+                    accent = shieldColors.warningAmber,
+                    modifier = Modifier.weight(1f),
+                )
+                TelemetryMetricCard(
+                    label = "Active Shields",
+                    value = "$activeShieldCount/5",
+                    icon = Icons.Rounded.VerifiedUser,
+                    accent = accentColor,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        // Quick Security Shields Grid
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 640.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Privacy & Defense Layers",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = "Configure All",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = accentColor,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSecuritySettings)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("start_configure_all_button"),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ShieldToggleTile(
+                        title = "No-Script",
+                        subtitle = if (config.noScriptEnabled) "JS Blocked" else "JS Allowed",
+                        enabled = config.noScriptEnabled,
+                        icon = Icons.Rounded.CodeOff,
+                        accent = accentColor,
+                        testTag = "tile_noscript",
+                        onClick = { onToggleNoScript(!config.noScriptEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShieldToggleTile(
+                        title = "WebRTC Guard",
+                        subtitle = if (config.webRtcLeakProtectionEnabled) "IP Leak Blocked" else "Standard",
+                        enabled = config.webRtcLeakProtectionEnabled,
+                        icon = Icons.Rounded.VisibilityOff,
+                        accent = accentColor,
+                        testTag = "tile_webrtc",
+                        onClick = { onToggleWebRtc(!config.webRtcLeakProtectionEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ShieldToggleTile(
+                        title = "HTTPS Force",
+                        subtitle = if (config.httpsEverywhereEnabled) "Upgraded" else "Permissive",
+                        enabled = config.httpsEverywhereEnabled,
+                        icon = Icons.Rounded.Https,
+                        accent = accentColor,
+                        testTag = "tile_https",
+                        onClick = { onToggleHttpsEverywhere(!config.httpsEverywhereEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShieldToggleTile(
+                        title = "Fingerprint",
+                        subtitle = if (config.fingerprintRandomizationEnabled) "Randomized" else "Native",
+                        enabled = config.fingerprintRandomizationEnabled,
+                        icon = Icons.Rounded.Fingerprint,
+                        accent = accentColor,
+                        testTag = "tile_fingerprint",
+                        onClick = { onToggleFingerprint(!config.fingerprintRandomizationEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ShieldToggleTile(
+                        title = "Ad Blocker",
+                        subtitle = if (config.trackerBlockerEnabled) "Ads & Pixels Blocked" else "Paused",
+                        enabled = config.trackerBlockerEnabled,
+                        icon = Icons.Rounded.Block,
+                        accent = shieldColors.secureGreen,
+                        testTag = "tile_adblock",
+                        onClick = { onToggleAdBlocker(!config.trackerBlockerEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShieldToggleTile(
+                        title = "Popup Shield",
+                        subtitle = if (config.popupBlockerEnabled) "Popups Blocked" else "Allowed",
+                        enabled = config.popupBlockerEnabled,
+                        icon = Icons.Rounded.Shield,
+                        accent = shieldColors.secureGreen,
+                        testTag = "tile_popup_blocker",
+                        onClick = { onTogglePopupBlocker(!config.popupBlockerEnabled) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -1034,8 +1033,8 @@ private fun TelemetryMetricCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -1082,7 +1081,7 @@ private fun ShieldToggleTile(
         border = BorderStroke(1.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {

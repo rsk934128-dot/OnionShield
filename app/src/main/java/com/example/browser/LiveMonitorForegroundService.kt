@@ -507,6 +507,9 @@ class LiveMonitorForegroundService : Service() {
 
         if (mediaStateJob == null) {
             mediaStateJob = scope.launch {
+                var lastNotifPlaying: Boolean? = null
+                var lastNotifPaused: Boolean? = null
+                var lastNotifTitle: String? = null
                 combine(
                     LiveSessionRuntime.isMediaPlaybackActive,
                     LiveSessionRuntime.hasMediaSession,
@@ -535,18 +538,26 @@ class LiveMonitorForegroundService : Service() {
                             durationMs = snap.durationMs,
                         )
                     }
-                    updateNotification(
-                        buildNotification(
-                            stats = latestStats,
-                            config = latestConfig,
-                            syncStatus = latestSyncStatus,
-                            torState = latestTorState,
-                            isMediaActive = snap.isPlaying,
-                            mediaTitle = snap.title,
-                            isMediaPausedSession = latestMediaSessionPaused,
-                            mediaSessionToken = mediaSessionHandler?.sessionToken,
-                        ),
-                    )
+                    if (lastNotifPlaying != snap.isPlaying ||
+                        lastNotifPaused != latestMediaSessionPaused ||
+                        lastNotifTitle != snap.title
+                    ) {
+                        lastNotifPlaying = snap.isPlaying
+                        lastNotifPaused = latestMediaSessionPaused
+                        lastNotifTitle = snap.title
+                        updateNotification(
+                            buildNotification(
+                                stats = latestStats,
+                                config = latestConfig,
+                                syncStatus = latestSyncStatus,
+                                torState = latestTorState,
+                                isMediaActive = snap.isPlaying,
+                                mediaTitle = snap.title,
+                                isMediaPausedSession = latestMediaSessionPaused,
+                                mediaSessionToken = mediaSessionHandler?.sessionToken,
+                            ),
+                        )
+                    }
                 }
             }
         }

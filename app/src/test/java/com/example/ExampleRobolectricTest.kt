@@ -1132,6 +1132,19 @@ class ExampleRobolectricTest {
         assertEquals("Keep standard HTTPS-Only protection enabled.", parsed.recommendedAction)
 
         if (com.example.BuildConfig.DEBUG) {
+            if (com.google.firebase.FirebaseApp.getApps(context)
+                    .none { it.name == com.google.firebase.FirebaseApp.DEFAULT_APP_NAME }
+            ) {
+                com.google.firebase.FirebaseApp.initializeApp(context)
+                    ?: com.google.firebase.FirebaseApp.initializeApp(
+                        context,
+                        com.google.firebase.FirebaseOptions.Builder()
+                            .setApplicationId("com.aistudio.onionshield.kxrqzm")
+                            .setProjectId("demo-robolectric-test")
+                            .setApiKey("fake-api-key-for-robolectric-test")
+                            .build(),
+                    )
+            }
             val testToken = "test-debug-token-12345"
             val launchIntent = Intent().putExtra("FIREBASE_APPCHECK_DEBUG_TOKEN", testToken)
             com.example.security.configureAppCheck(context, launchIntent)
@@ -1205,5 +1218,144 @@ class ExampleRobolectricTest {
         assertTrue(vm.messages.value.isEmpty())
         vm.clearChat()
         assertEquals(com.example.ui.GeminiUiState.Idle, vm.uiState.value)
+    }
+
+    @Test
+    fun `youtube playback fix preserves ctier=l streams, avoids audio focus self-steal, and hardens autoplay transitions`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val pageUrl = "https://m.youtube.com/watch?v=song123"
+
+        // Legitimate YouTube low-tier / preload audio streams must NOT be blocked
+        assertFalse(TrackerAndUrlEngine.isAdOrTrackerRequest("https://rr3---sn-test.googlevideo.com/videoplayback?expire=999&ctier=l&mime=audio/mp4", pageUrl))
+        assertFalse(TrackerAndUrlEngine.isAdOrTrackerRequest("https://rr3---sn-test.googlevideo.com/videoplayback?expire=999&preload=1&mime=audio/webm", pageUrl))
+        // Explicit ad streams remain blocked
+        assertTrue(TrackerAndUrlEngine.isAdOrTrackerRequest("https://rr3---sn-test.googlevideo.com/videoplayback?expire=999&oad=1&ctier=l", pageUrl))
+        assertTrue(TrackerAndUrlEngine.isAdOrTrackerRequest("https://rr3---sn-test.googlevideo.com/videoplayback?expire=999&ad_type=video", pageUrl))
+
+        // OnionMediaSessionHandler must NOT steal AudioManager focus away from in-process WebView by default
+        val handler = com.example.browser.OnionMediaSessionHandler(
+            context = context,
+            onPlayCommand = {},
+            onPauseCommand = {},
+            onStopCommand = {},
+            onSeekCommand = {},
+            onSkipNextCommand = {},
+            onSkipPrevCommand = {},
+        )
+        try {
+            handler.updatePlayback(
+                title = "Autoplayed Song",
+                artist = "YouTube Channel",
+                isPlaying = true,
+                positionMs = 1_500L,
+                durationMs = 210_000L,
+            )
+            assertTrue(handler.snapshot.value.isPlaying)
+            assertEquals(0, handler.platformAudioFocusRequests)
+        } finally {
+            handler.release()
+        }
+
+        // PrivacyScripts includes hasFocus override, Continue Watching auto-dismissal, and SPA autoplay transition guard
+        val script = PrivacyScripts.buildHardeningScript(
+            seed = "YTMUSIC1",
+            enableWebRtcGuard = false,
+            enableFingerprintRandomization = false,
+            enableCosmeticAdBlock = true,
+            enablePopupGuard = true,
+            enableBackgroundMediaPlayback = true,
+        )
+        assertTrue(script.contains("Document.prototype.hasFocus"))
+        assertTrue(script.contains("dismissContinueWatchingDialogs"))
+        assertTrue(script.contains("isExplicitPlayPauseControlTarget"))
+        assertTrue(script.contains("tryAutoResumeElement"))
+        assertTrue(script.contains("__osAutoplayTransitionUntilMs"))
+    }
+
+    @Test
+    fun `gemini high demand errors trigger friendly retry state and retryLastRequest avoids duplicate bubbles`() = runBlocking {
+        assertEquals("gemini-3.5-flash-lite", com.example.data.repository.GeminiShieldRepository.FALLBACK_MODEL_NAME)
+        assertTrue(
+            com.example.data.repository.GeminiShieldRepository.isTransientHighDemandError(
+                RuntimeException("This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."),
+            ),
+        )
+        assertTrue(
+            com.example.data.repository.GeminiShieldRepository.isTransientHighDemandError(
+                RuntimeException("HTTP 503 service unavailable"),
+            ),
+        )
+        assertFalse(
+            com.example.data.repository.GeminiShieldRepository.isTransientHighDemandError(
+                RuntimeException("HTTP 403 App Check token invalid"),
+            ),
+        )
+
+        var attempt = 0
+        val fakeRepo = object : com.example.data.repository.GeminiShieldRepository() {
+            override fun sendChatMessageStream(
+                history: List<com.example.data.repository.GeminiChatMessage>,
+                userPrompt: String,
+                pageContext: com.example.data.repository.PageAiContext?,
+            ): kotlinx.coroutines.flow.Flow<String> = kotlinx.coroutines.flow.flow {
+                attempt++
+                if (attempt == 1) {
+                    throw RuntimeException("This model is currently experiencing high demand.")
+                }
+                emit("Tor routes traffic through three encrypted relays.")
+            }
+        }
+
+        val vm = com.example.ui.GeminiAssistantViewModel(repository = fakeRepo)
+        vm.sendMessage("Explain how Tor .onion circuits protect my IP address", null)
+        // Allow viewModelScope coroutine on Main dispatcher to process
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        val firstErr = vm.uiState.value as? com.example.ui.GeminiUiState.Error
+        assertNotNull(firstErr)
+        assertTrue(firstErr!!.canRetry)
+        assertEquals(1, vm.messages.value.size)
+
+        vm.retryLastRequest()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(vm.uiState.value is com.example.ui.GeminiUiState.Success)
+        // Must reuse the existing user turn rather than duplicating it
+        assertEquals(2, vm.messages.value.size)
+        assertEquals(com.example.data.repository.ChatRole.USER, vm.messages.value[0].role)
+        assertEquals(com.example.data.repository.ChatRole.MODEL, vm.messages.value[1].role)
+        assertTrue(vm.messages.value[1].text.contains("three encrypted relays"))
+    }
+
+    @Test
+    fun `persistent surface seed authenticated hosts and webview session preservation work for google and any site`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = com.example.data.PrivacyPreferencesRepository(context)
+
+        val initialSeed = repo.ensureSurfaceDeviceSeed("SEED1111")
+        assertEquals("SEED1111", initialSeed)
+        // Subsequent app starts reuse the same Surface seed until explicitly rotated
+        assertEquals("SEED1111", repo.ensureSurfaceDeviceSeed("SEED9999"))
+
+        repo.addAuthenticatedSessionHost("www.customshop.example")
+        assertTrue(repo.authenticatedSessionHosts.first().contains("customshop.example"))
+
+        // Auth flow URL detection covers Google, major SSO providers, and arbitrary /login or /oauth endpoints
+        assertTrue(com.example.browser.WebViewPool.isAuthFlowUrl("https://accounts.google.com/v3/signin"))
+        assertTrue(com.example.browser.WebViewPool.isAuthFlowUrl("https://www.example.com/oauth2/authorize"))
+        assertTrue(com.example.browser.WebViewPool.isAuthFlowUrl("https://portal.mybank.org/login"))
+        assertFalse(com.example.browser.WebViewPool.isAuthFlowUrl("https://example.org/news/article-1"))
+
+        // Cross-domain account session hosts work for Google, YouTube, other major sites, and any user-logged-in domain
+        val recordedHosts = repo.authenticatedSessionHosts.first()
+        assertTrue(com.example.browser.WebViewPool.isAccountSessionHost("https://m.youtube.com/watch?v=abc", recordedHosts))
+        assertTrue(com.example.browser.WebViewPool.isAccountSessionHost("https://www.google.com/search?q=ai", recordedHosts))
+        assertTrue(com.example.browser.WebViewPool.isAccountSessionHost("https://github.com/settings", recordedHosts))
+        assertTrue(com.example.browser.WebViewPool.isAccountSessionHost("https://sub.customshop.example/account", recordedHosts))
+        assertFalse(com.example.browser.WebViewPool.isAccountSessionHost("https://untrusted-news.example/home", recordedHosts))
+
+        // Explicit shred rotates seed and clears authenticated hosts
+        repo.rotateSurfaceDeviceSeed("SEED2222")
+        repo.clearAuthenticatedSessionHosts()
+        assertEquals("SEED2222", repo.surfaceDeviceSeed.first())
+        assertTrue(repo.authenticatedSessionHosts.first().isEmpty())
     }
 }

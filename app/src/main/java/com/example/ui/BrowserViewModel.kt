@@ -10,16 +10,22 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.browser.DetectedTradeButton
+import com.example.browser.DownloadFileHelper
 import com.example.browser.HomeAppShortcutHelper
 import com.example.browser.LiveMonitorForegroundService
 import com.example.browser.LiveSessionRuntime
 import com.example.browser.OnionShieldVpnService
 import com.example.browser.PrivacyScripts
+import com.example.browser.ResolvedClickTarget
 import com.example.browser.SessionGuardEngine
 import com.example.browser.SessionGuardStats
 import com.example.browser.SessionMonitorSyncService
@@ -27,9 +33,13 @@ import com.example.browser.SessionMonitorSyncStatus
 import com.example.browser.TorCircuitService
 import com.example.browser.TorProxyController
 import com.example.browser.TrackerAndUrlEngine
+import com.example.browser.TradeDecision
+import com.example.browser.TradePilotHelper
+import com.example.browser.TradeSignalDecision
 import com.example.browser.VpnTunnelRuntime
 import com.example.browser.WebViewEventCallbacks
 import com.example.browser.WebViewPool
+import com.example.browser.WebsiteLogoCache
 import com.example.data.ABOUT_START_URL
 import com.example.data.BookmarkEntity
 import com.example.data.BridgeTransport
@@ -58,6 +68,7 @@ import com.example.data.VpnServerProfile
 import com.example.data.VpnTunnelStatus
 import com.example.data.repository.DecryptedSearchHistoryItem
 import com.example.data.repository.EncryptedSearchHistoryRepository
+import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.SessionMonitorFirestoreRepository
 import com.example.security.VaultCryptoManager
 import com.example.ui.screens.AppLockPolicy
@@ -65,6 +76,10 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import java.util.UUID
 import javax.crypto.SecretKey
+import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -76,7 +91,27 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+
+data class TradePilotUiState(
+    val isPanelExpanded: Boolean = false,
+    val isAnalyzing: Boolean = false,
+    val isCapturingScreen: Boolean = false,
+    val isAutoPilotRunning: Boolean = false,
+    val minConfidencePercent: Int = 60,
+    val cooldownSeconds: Int = 8,
+    val lastDecision: TradeSignalDecision? = null,
+    val lastResolvedTarget: ResolvedClickTarget? = null,
+    val lastClickedAction: String? = null,
+    val lastClickedAtMs: Long = 0L,
+    val lastTapNormX: Float? = null,
+    val lastTapNormY: Float? = null,
+    val totalExecutionsCount: Int = 0,
+    val lastError: String? = null,
+)
 
 data class BrowserUiState(
     val tabs: List<BrowserTab> = listOf(BrowserTab()),
@@ -89,6 +124,7 @@ data class BrowserUiState(
     val totalTrackersBlocked: Int = 0,
     val totalScriptsBlocked: Int = 0,
     val pendingDownload: PendingDownloadRequest? = null,
+    val downloadFailureReasons: Map<Long, String> = emptyMap(),
     val showDisclaimerDialog: Boolean = false,
     val showShredConfirmDialog: Boolean = false,
     val isVaultUnlocked: Boolean = false,
@@ -100,6 +136,7 @@ data class BrowserUiState(
     val statusBannerMessage: String? = null,
     val isAppLocked: Boolean = true,
     val isAppLockConfigLoaded: Boolean = false,
+    val tradePilot: TradePilotUiState = TradePilotUiState(),
 ) {
     val activeTab: BrowserTab
         get() = tabs.firstOrNull { it.id == activeTabId } ?: tabs.first()
@@ -111,7 +148,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val localDb = OnionShieldDatabase.getInstance(application)
     private val libraryRepo = BrowserLibraryRepository(localDb)
     private val searchHistoryRepo = EncryptedSearchHistoryRepository(application, localDb.searchHistoryDao())
+    private val geminiShieldRepository = GeminiShieldRepository()
     val webViewPool = WebViewPool(application, this)
+    private val autoFallbackAttemptedIds = mutableSetOf<Long>()
+    private var tradeAutoPilotJob: Job? = null
+    private var lastDetectedTradeButtons: List<DetectedTradeButton> = emptyList()
 
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -188,6 +229,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val fullscreenCustomView: StateFlow<View?> = _fullscreenCustomView.asStateFlow()
     private var customVideoCallback: WebChromeClient.CustomViewCallback? = null
 
+    private val _popupWebView = MutableStateFlow<WebView?>(null)
+    val popupWebView: StateFlow<WebView?> = _popupWebView.asStateFlow()
+
     val isCurrentPageBookmarked: StateFlow<Boolean> = combine(_uiState, bookmarks) { state, list ->
         val url = state.activeTab.url
         url != ABOUT_START_URL && list.any { it.url == url }
@@ -197,10 +241,43 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var autoStartedBackgroundService = false
     private var latestEncryptedVaultEntities: List<VaultEntryEntity> = emptyList()
     private var unlockedVaultKey: SecretKey? = null
+    @Volatile
+    private var persistentSurfaceSeed: String = _uiState.value.activeTab.fingerprintSeed
 
     init {
         viewModelScope.launch {
             libraryRepo.ensureDefaultHomeAppsSeeded()
+        }
+
+        viewModelScope.launch {
+            val resolvedSeed = prefsRepo.ensureSurfaceDeviceSeed(persistentSurfaceSeed)
+            persistentSurfaceSeed = resolvedSeed
+            val resolvedProfile = PrivacyScripts.profileForSeed(resolvedSeed, BrowserMode.SURFACE)
+            _uiState.update { state ->
+                state.copy(
+                    tabs = state.tabs.map { tab ->
+                        if (tab.mode == BrowserMode.SURFACE && tab.isStartPage) {
+                            tab.copy(
+                                fingerprintSeed = resolvedSeed,
+                                userAgentLabel = resolvedProfile.label,
+                            )
+                        } else {
+                            tab
+                        }
+                    },
+                )
+            }
+            prefsRepo.surfaceDeviceSeed.collectLatest { savedSeed ->
+                if (!savedSeed.isNullOrBlank()) {
+                    persistentSurfaceSeed = savedSeed
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            prefsRepo.authenticatedSessionHosts.collectLatest { hosts ->
+                webViewPool.updateAuthenticatedHosts(hosts)
+            }
         }
 
         viewModelScope.launch {
@@ -560,8 +637,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun createNewTab(mode: BrowserMode = _uiState.value.securityConfig.browserMode, initialUrl: String = ABOUT_START_URL) {
-        val seed = UUID.randomUUID().toString().take(8).uppercase()
-        val profile = PrivacyScripts.profileForSeed(seed)
+        val seed = if (mode == BrowserMode.SURFACE) {
+            persistentSurfaceSeed
+        } else {
+            UUID.randomUUID().toString().take(8).uppercase()
+        }
+        val profile = PrivacyScripts.profileForSeed(seed, mode)
         val newTab = BrowserTab(
             mode = mode,
             url = initialUrl,
@@ -609,7 +690,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { state ->
             val remaining = state.tabs.filterNot { it.id == tabId }
             if (remaining.isEmpty()) {
-                val fresh = BrowserTab(mode = state.securityConfig.browserMode)
+                val mode = state.securityConfig.browserMode
+                val seed = if (mode == BrowserMode.SURFACE) {
+                    persistentSurfaceSeed
+                } else {
+                    UUID.randomUUID().toString().take(8).uppercase()
+                }
+                val profile = PrivacyScripts.profileForSeed(seed, mode)
+                val fresh = BrowserTab(
+                    mode = mode,
+                    fingerprintSeed = seed,
+                    userAgentLabel = profile.label,
+                )
                 state.copy(
                     tabs = listOf(fresh),
                     activeTabId = fresh.id,
@@ -693,17 +785,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun confirmShredSession() {
+        dismissPopupWebView()
         webViewPool.shredAllSessions()
         LiveSessionRuntime.clearMediaSession()
         unlockedVaultKey = null
+        val seed = UUID.randomUUID().toString().take(8).uppercase()
+        persistentSurfaceSeed = seed
         viewModelScope.launch {
             searchHistoryRepo.clearAll()
             prefsRepo.clearPersistedMediaState()
+            prefsRepo.rotateSurfaceDeviceSeed(seed)
+            prefsRepo.clearAuthenticatedSessionHosts()
         }
-        val seed = UUID.randomUUID().toString().take(8).uppercase()
-        val profile = PrivacyScripts.profileForSeed(seed)
+        val mode = _uiState.value.securityConfig.browserMode
+        val profile = PrivacyScripts.profileForSeed(seed, mode)
         val cleanTab = BrowserTab(
-            mode = _uiState.value.securityConfig.browserMode,
+            mode = mode,
             fingerprintSeed = seed,
             userAgentLabel = profile.label,
         )
@@ -815,8 +912,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun regenerateFingerprintSeed() {
         val seed = UUID.randomUUID().toString().take(8).uppercase()
-        val profile = PrivacyScripts.profileForSeed(seed)
         val tab = _uiState.value.activeTab
+        val profile = PrivacyScripts.profileForSeed(seed, tab.mode)
+        if (tab.mode == BrowserMode.SURFACE) {
+            persistentSurfaceSeed = seed
+            viewModelScope.launch {
+                prefsRepo.rotateSurfaceDeviceSeed(seed)
+            }
+        }
         webViewPool.getWebView(tab.id)?.let { it.tag = seed }
         updateTab(tab.id) {
             it.copy(fingerprintSeed = seed, userAgentLabel = profile.label)
@@ -881,13 +984,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         if (resolved == ABOUT_START_URL) return
         val cleanTitle = HomeAppShortcutHelper.deriveDisplayTitle(rawTitle, resolved)
         val isOnion = TrackerAndUrlEngine.isOnionUrl(resolved)
+        val allowNetworkLogoFetch = !isOnion && _uiState.value.securityConfig.browserMode == BrowserMode.SURFACE
         viewModelScope.launch {
             libraryRepo.pinHomeApp(cleanTitle, resolved)
+            val fetchedLogo = WebsiteLogoCache.getOrFetchBitmap(
+                context = context,
+                url = resolved,
+                allowNetworkFetch = allowNetworkLogoFetch,
+            )
             val (_, msg) = HomeAppShortcutHelper.pinWebsiteToHomeScreen(
                 context = context,
                 title = cleanTitle,
                 url = resolved,
                 isOnion = isOnion,
+                fetchedLogoBitmap = fetchedLogo,
             )
             _uiState.update { it.copy(statusBannerMessage = msg) }
         }
@@ -945,41 +1055,261 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val pending = _uiState.value.pendingDownload ?: return
         _uiState.update { it.copy(pendingDownload = null) }
         val app = getApplication<Application>()
+        val safeName = DownloadFileHelper.resolveDownloadFileName(
+            rawGuessedName = pending.fileName,
+            url = pending.url,
+            contentDisposition = pending.contentDisposition,
+            mimeType = pending.mimeType,
+        )
+        val safeMime = pending.mimeType.substringBefore(';').trim().ifBlank { "application/octet-stream" }
 
         viewModelScope.launch {
+            // 1) Handle blob: URLs via WebView JS bridge (DownloadManager rejects blob: URIs)
+            if (pending.url.startsWith("blob:", ignoreCase = true)) {
+                val recordId = libraryRepo.recordDownload(
+                    DownloadEntity(
+                        fileName = safeName,
+                        url = pending.url,
+                        mimeType = safeMime,
+                        status = "DOWNLOADING",
+                        systemDownloadId = -1L,
+                        isOnionSource = pending.isOnionSource,
+                        sizeBytes = pending.contentLength.coerceAtLeast(0L),
+                    ),
+                )
+                val tabId = pending.sourceTabId.ifBlank { _uiState.value.activeTabId }
+                webViewPool.fetchBlobDownload(
+                    tabId = tabId,
+                    blobUrl = pending.url,
+                    fileName = safeName,
+                    mimeType = safeMime,
+                ) { saved ->
+                    viewModelScope.launch {
+                        if (saved.success) {
+                            libraryRepo.updateDownloadDetails(
+                                id = recordId,
+                                fileName = saved.savedFileName,
+                                url = saved.localUri.ifBlank { pending.url },
+                                status = "COMPLETED",
+                                systemDownloadId = -1L,
+                                sizeBytes = saved.sizeBytes,
+                            )
+                            _uiState.update {
+                                it.copy(
+                                    downloadFailureReasons = it.downloadFailureReasons - recordId,
+                                    statusBannerMessage = "Download completed: ${saved.savedFileName}",
+                                )
+                            }
+                        } else {
+                            val err = saved.errorMessage ?: "Could not save blob download"
+                            libraryRepo.updateDownloadStatus(recordId, "FAILED")
+                            _uiState.update {
+                                it.copy(
+                                    downloadFailureReasons = it.downloadFailureReasons + (recordId to err),
+                                    statusBannerMessage = "Download failed: $err",
+                                )
+                            }
+                        }
+                    }
+                }
+                _uiState.update { it.copy(statusBannerMessage = "Saving $safeName...") }
+                return@launch
+            }
+
+            // 2) Handle data: URIs directly in Kotlin (DownloadManager rejects data: URIs)
+            if (pending.url.startsWith("data:", ignoreCase = true)) {
+                val saved = withContext(Dispatchers.IO) {
+                    val decoded = DownloadFileHelper.decodeDataUri(pending.url)
+                    if (decoded == null) {
+                        com.example.browser.SavedDownloadResult(
+                            success = false,
+                            savedFileName = safeName,
+                            errorMessage = "Invalid data URI payload",
+                        )
+                    } else {
+                        val actualMime = decoded.mimeType.ifBlank { safeMime }
+                        val resolvedName = DownloadFileHelper.resolveDownloadFileName(
+                            rawGuessedName = safeName,
+                            url = "",
+                            contentDisposition = null,
+                            mimeType = actualMime,
+                        )
+                        decoded.bytes.inputStream().use { stream ->
+                            DownloadFileHelper.saveStreamToDownloads(app, resolvedName, actualMime, stream)
+                        }
+                    }
+                }
+                val recordId = libraryRepo.recordDownload(
+                    DownloadEntity(
+                        fileName = saved.savedFileName,
+                        url = saved.localUri.ifBlank { pending.url },
+                        mimeType = safeMime,
+                        status = if (saved.success) "COMPLETED" else "FAILED",
+                        systemDownloadId = -1L,
+                        isOnionSource = pending.isOnionSource,
+                        sizeBytes = saved.sizeBytes,
+                    ),
+                )
+                _uiState.update {
+                    it.copy(
+                        downloadFailureReasons = if (saved.success) {
+                            it.downloadFailureReasons - recordId
+                        } else {
+                            it.downloadFailureReasons + (recordId to (saved.errorMessage ?: "Data download failed"))
+                        },
+                        statusBannerMessage = if (saved.success) {
+                            "Download completed: ${saved.savedFileName}"
+                        } else {
+                            "Download failed: ${saved.errorMessage ?: safeName}"
+                        },
+                    )
+                }
+                return@launch
+            }
+
+            // 3) Tor / .onion downloads route directly through Tor SOCKS5 proxy into MediaStore Downloads
+            if (pending.isOnionSource) {
+                val recordId = libraryRepo.recordDownload(
+                    DownloadEntity(
+                        fileName = safeName,
+                        url = pending.url,
+                        mimeType = safeMime,
+                        status = "DOWNLOADING",
+                        systemDownloadId = -1L,
+                        isOnionSource = true,
+                        sizeBytes = pending.contentLength.coerceAtLeast(0L),
+                    ),
+                )
+                _uiState.update { it.copy(statusBannerMessage = "Downloading via Tor: $safeName") }
+                executeDirectDownloadForRecord(
+                    recordId = recordId,
+                    url = pending.url,
+                    fileName = safeName,
+                    mimeType = safeMime,
+                    userAgent = pending.userAgent,
+                    refererUrl = pending.refererUrl,
+                    useTorProxy = true,
+                )
+                return@launch
+            }
+
+            // 4) Standard Surface http(s) -> DownloadManager with Cookie + Referer + direct fallback
+            val cookieHeader = runCatching { CookieManager.getInstance().getCookie(pending.url) }.getOrNull()
             val systemId = runCatching {
                 val request = DownloadManager.Request(Uri.parse(pending.url)).apply {
-                    setMimeType(pending.mimeType)
-                    addRequestHeader("User-Agent", pending.userAgent)
-                    setTitle(pending.fileName)
-                    setDescription(
-                        if (pending.isOnionSource) "OnionShield Tor Download" else "OnionShield Download",
-                    )
+                    setMimeType(safeMime)
+                    if (pending.userAgent.isNotBlank()) {
+                        addRequestHeader("User-Agent", pending.userAgent)
+                    }
+                    if (!cookieHeader.isNullOrBlank()) {
+                        addRequestHeader("Cookie", cookieHeader)
+                    }
+                    if (pending.refererUrl.isNotBlank()) {
+                        addRequestHeader("Referer", pending.refererUrl)
+                    }
+                    setTitle(safeName)
+                    setDescription("OnionShield Download")
                     setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, pending.fileName)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeName)
                 }
                 val dm = app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 dm.enqueue(request)
             }.getOrDefault(-1L)
 
-            libraryRepo.recordDownload(
-                DownloadEntity(
-                    fileName = pending.fileName,
+            if (systemId >= 0L) {
+                libraryRepo.recordDownload(
+                    DownloadEntity(
+                        fileName = safeName,
+                        url = pending.url,
+                        mimeType = safeMime,
+                        status = "DOWNLOADING",
+                        systemDownloadId = systemId,
+                        isOnionSource = false,
+                        sizeBytes = pending.contentLength.coerceAtLeast(0L),
+                    ),
+                )
+                _uiState.update { it.copy(statusBannerMessage = "Download queued: $safeName") }
+            } else {
+                val recordId = libraryRepo.recordDownload(
+                    DownloadEntity(
+                        fileName = safeName,
+                        url = pending.url,
+                        mimeType = safeMime,
+                        status = "DOWNLOADING",
+                        systemDownloadId = -1L,
+                        isOnionSource = false,
+                        sizeBytes = pending.contentLength.coerceAtLeast(0L),
+                    ),
+                )
+                _uiState.update { it.copy(statusBannerMessage = "Downloading $safeName...") }
+                executeDirectDownloadForRecord(
+                    recordId = recordId,
                     url = pending.url,
-                    mimeType = pending.mimeType,
-                    status = if (systemId >= 0L) "DOWNLOADING" else "FAILED",
-                    systemDownloadId = systemId,
-                    isOnionSource = pending.isOnionSource,
-                    sizeBytes = pending.contentLength.coerceAtLeast(0L),
-                ),
+                    fileName = safeName,
+                    mimeType = safeMime,
+                    userAgent = pending.userAgent,
+                    refererUrl = pending.refererUrl,
+                    useTorProxy = false,
+                )
+            }
+        }
+    }
+
+    private suspend fun executeDirectDownloadForRecord(
+        recordId: Long,
+        url: String,
+        fileName: String,
+        mimeType: String,
+        userAgent: String,
+        refererUrl: String,
+        useTorProxy: Boolean,
+    ) {
+        val app = getApplication<Application>()
+        val cfg = _uiState.value.securityConfig
+        val cookieHeader = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
+        val result = withContext(Dispatchers.IO) {
+            DownloadFileHelper.downloadHttpDirectToDownloads(
+                context = app,
+                url = url,
+                preferredFileName = fileName,
+                mimeType = mimeType,
+                userAgent = userAgent,
+                cookieHeader = cookieHeader,
+                refererUrl = refererUrl,
+                useTorProxy = useTorProxy,
+                torHost = cfg.torProxyHost,
+                torPort = cfg.torProxyPort,
+            )
+        }
+        if (result.success) {
+            libraryRepo.updateDownloadDetails(
+                id = recordId,
+                fileName = result.savedFileName,
+                url = result.localUri.ifBlank { url },
+                status = "COMPLETED",
+                systemDownloadId = -1L,
+                sizeBytes = result.sizeBytes,
             )
             _uiState.update {
                 it.copy(
-                    statusBannerMessage = if (systemId >= 0L) {
-                        "Download queued: ${pending.fileName}"
-                    } else {
-                        "Could not enqueue download for ${pending.fileName}"
-                    },
+                    downloadFailureReasons = it.downloadFailureReasons - recordId,
+                    statusBannerMessage = "Download completed: ${result.savedFileName}",
+                )
+            }
+        } else {
+            val err = result.errorMessage ?: "Direct download failed"
+            libraryRepo.updateDownloadDetails(
+                id = recordId,
+                fileName = result.savedFileName,
+                url = url,
+                status = "FAILED",
+                systemDownloadId = -1L,
+                sizeBytes = 0L,
+            )
+            _uiState.update {
+                it.copy(
+                    downloadFailureReasons = it.downloadFailureReasons + (recordId to err),
+                    statusBannerMessage = "Download failed: $err",
                 )
             }
         }
@@ -988,10 +1318,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun cancelPendingDownload() {
         val pending = _uiState.value.pendingDownload ?: return
         _uiState.update { it.copy(pendingDownload = null) }
+        val safeName = DownloadFileHelper.resolveDownloadFileName(
+            rawGuessedName = pending.fileName,
+            url = pending.url,
+            contentDisposition = pending.contentDisposition,
+            mimeType = pending.mimeType,
+        )
         viewModelScope.launch {
             libraryRepo.recordDownload(
                 DownloadEntity(
-                    fileName = pending.fileName,
+                    fileName = safeName,
                     url = pending.url,
                     mimeType = pending.mimeType,
                     status = "CANCELLED",
@@ -1012,21 +1348,25 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         if (resolved == ABOUT_START_URL) return
         val isApk = TrackerAndUrlEngine.isApkAsset(resolved, null, null)
         val guessedMime = if (isApk) "application/vnd.android.package-archive" else "application/octet-stream"
-        val guessedName = URLUtil.guessFileName(resolved, null, guessedMime)
-            .let { name ->
-                if (isApk && !name.lowercase().endsWith(".apk")) "$name.apk" else name
-            }
+        val guessedName = DownloadFileHelper.resolveDownloadFileName(
+            rawGuessedName = URLUtil.guessFileName(resolved, null, guessedMime),
+            url = resolved,
+            contentDisposition = null,
+            mimeType = guessedMime,
+        )
         _uiState.update {
             it.copy(
                 pendingDownload = PendingDownloadRequest(
                     url = resolved,
-                    userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36",
+                    userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
                     contentDisposition = "",
                     mimeType = guessedMime,
                     contentLength = -1L,
                     fileName = guessedName,
                     isOnionSource = TrackerAndUrlEngine.isOnionUrl(resolved) ||
                         _uiState.value.securityConfig.browserMode == BrowserMode.TOR_ONION,
+                    sourceTabId = it.activeTabId,
+                    refererUrl = it.activeTab.url,
                 ),
             )
         }
@@ -1042,22 +1382,151 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 val cursor = runCatching {
                     dm.query(DownloadManager.Query().setFilterById(entry.systemDownloadId))
                 }.getOrNull()
-                cursor?.use { c ->
-                    if (c.moveToFirst()) {
-                        val statusCol = c.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                        if (statusCol >= 0) {
-                            val mapped = when (c.getInt(statusCol)) {
-                                DownloadManager.STATUS_SUCCESSFUL -> "COMPLETED"
-                                DownloadManager.STATUS_FAILED -> "FAILED"
-                                else -> "DOWNLOADING"
+                if (cursor == null) return@forEach
+                cursor.use { c ->
+                    if (!c.moveToFirst()) {
+                        if (entry.status == "DOWNLOADING") {
+                            libraryRepo.updateDownloadStatus(entry.id, "FAILED")
+                            _uiState.update {
+                                it.copy(
+                                    downloadFailureReasons = it.downloadFailureReasons +
+                                        (entry.id to "Download was cancelled or removed by Android."),
+                                )
                             }
-                            if (mapped != entry.status) {
-                                libraryRepo.updateDownloadStatus(entry.id, mapped)
+                        }
+                        return@use
+                    }
+                    val statusCol = c.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                    val totalSizeCol = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                    val reasonCol = c.getColumnIndex(DownloadManager.COLUMN_REASON)
+                    if (statusCol >= 0) {
+                        val dmStatus = c.getInt(statusCol)
+                        val dmSize = if (totalSizeCol >= 0) c.getLong(totalSizeCol).coerceAtLeast(entry.sizeBytes) else entry.sizeBytes
+                        val mapped = when (dmStatus) {
+                            DownloadManager.STATUS_SUCCESSFUL -> "COMPLETED"
+                            DownloadManager.STATUS_FAILED -> "FAILED"
+                            else -> "DOWNLOADING"
+                        }
+                        if (mapped == "FAILED" &&
+                            (entry.url.startsWith("http://", ignoreCase = true) || entry.url.startsWith("https://", ignoreCase = true)) &&
+                            autoFallbackAttemptedIds.add(entry.id)
+                        ) {
+                            libraryRepo.updateDownloadStatus(entry.id, "DOWNLOADING")
+                            executeDirectDownloadForRecord(
+                                recordId = entry.id,
+                                url = entry.url,
+                                fileName = entry.fileName,
+                                mimeType = entry.mimeType,
+                                userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
+                                refererUrl = "",
+                                useTorProxy = entry.isOnionSource,
+                            )
+                            return@use
+                        }
+                        if (mapped == "FAILED" && reasonCol >= 0) {
+                            val reasonText = describeDownloadManagerReason(c.getInt(reasonCol))
+                            _uiState.update {
+                                it.copy(downloadFailureReasons = it.downloadFailureReasons + (entry.id to reasonText))
                             }
+                        } else if (mapped == "COMPLETED") {
+                            _uiState.update {
+                                it.copy(downloadFailureReasons = it.downloadFailureReasons - entry.id)
+                            }
+                        }
+                        if (mapped != entry.status || dmSize != entry.sizeBytes) {
+                            libraryRepo.updateDownloadDetails(
+                                id = entry.id,
+                                fileName = entry.fileName,
+                                url = entry.url,
+                                status = mapped,
+                                systemDownloadId = entry.systemDownloadId,
+                                sizeBytes = dmSize,
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+
+    fun retryDownload(download: DownloadEntity) {
+        _uiState.update {
+            it.copy(downloadFailureReasons = it.downloadFailureReasons - download.id)
+        }
+        viewModelScope.launch {
+            if (download.url.startsWith("http://", ignoreCase = true) ||
+                download.url.startsWith("https://", ignoreCase = true)
+            ) {
+                val cleanName = DownloadFileHelper.resolveDownloadFileName(
+                    rawGuessedName = download.fileName,
+                    url = download.url,
+                    contentDisposition = null,
+                    mimeType = download.mimeType,
+                )
+                libraryRepo.updateDownloadDetails(
+                    id = download.id,
+                    fileName = cleanName,
+                    url = download.url,
+                    status = "DOWNLOADING",
+                    systemDownloadId = -1L,
+                    sizeBytes = 0L,
+                )
+                _uiState.update { it.copy(statusBannerMessage = "Retrying $cleanName...") }
+                executeDirectDownloadForRecord(
+                    recordId = download.id,
+                    url = download.url,
+                    fileName = cleanName,
+                    mimeType = download.mimeType,
+                    userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
+                    refererUrl = "",
+                    useTorProxy = download.isOnionSource ||
+                        _uiState.value.securityConfig.browserMode == BrowserMode.TOR_ONION,
+                )
+            } else if (download.url.startsWith("data:", ignoreCase = true)) {
+                val app = getApplication<Application>()
+                val saved = withContext(Dispatchers.IO) {
+                    val decoded = DownloadFileHelper.decodeDataUri(download.url)
+                    if (decoded == null) {
+                        com.example.browser.SavedDownloadResult(false, download.fileName, errorMessage = "Invalid data URI")
+                    } else {
+                        decoded.bytes.inputStream().use { stream ->
+                            DownloadFileHelper.saveStreamToDownloads(app, download.fileName, decoded.mimeType, stream)
+                        }
+                    }
+                }
+                libraryRepo.updateDownloadDetails(
+                    id = download.id,
+                    fileName = saved.savedFileName,
+                    url = saved.localUri.ifBlank { download.url },
+                    status = if (saved.success) "COMPLETED" else "FAILED",
+                    systemDownloadId = -1L,
+                    sizeBytes = saved.sizeBytes,
+                )
+            } else {
+                _uiState.update {
+                    it.copy(
+                        downloadFailureReasons = it.downloadFailureReasons + (
+                            download.id to "Temporary browser blob link expired. Re-open the site in a tab to export again."
+                        ),
+                        statusBannerMessage = "Temporary blob link expired — open the source website to re-download.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun describeDownloadManagerReason(reasonCode: Int): String {
+        return when (reasonCode) {
+            DownloadManager.ERROR_CANNOT_RESUME -> "Server does not support resuming this download."
+            DownloadManager.ERROR_DEVICE_NOT_FOUND -> "External Downloads storage is unavailable."
+            DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "A file with the same name already exists in Downloads."
+            DownloadManager.ERROR_FILE_ERROR -> "Could not write file to Downloads storage."
+            DownloadManager.ERROR_HTTP_DATA_ERROR -> "Network connection dropped during download."
+            DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Not enough free storage space on device."
+            DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "Server redirected too many times."
+            DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "Server blocked or returned an HTTP error."
+            in 400..599 -> "Server returned HTTP $reasonCode."
+            else -> "Download did not complete (code $reasonCode)."
         }
     }
 
@@ -1071,11 +1540,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             download.mimeType.ifBlank { "*/*" }
         }
 
-        val opened = if (download.systemDownloadId >= 0L) {
+        val targetUri: Uri? = when {
+            download.url.startsWith("content://", ignoreCase = true) -> Uri.parse(download.url)
+            download.systemDownloadId >= 0L -> runCatching { dm.getUriForDownloadedFile(download.systemDownloadId) }.getOrNull()
+            else -> null
+        }
+
+        val opened = if (targetUri != null) {
             runCatching {
-                val uri = dm.getUriForDownloadedFile(download.systemDownloadId) ?: return@runCatching false
                 val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, resolvedMime)
+                    setDataAndType(targetUri, resolvedMime)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 app.startActivity(intent)
@@ -1115,10 +1589,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteDownloadRecord(id: Long) {
         viewModelScope.launch { libraryRepo.deleteDownload(id) }
+        _uiState.update { it.copy(downloadFailureReasons = it.downloadFailureReasons - id) }
     }
 
     fun clearDownloads() {
         viewModelScope.launch { libraryRepo.clearDownloads() }
+        _uiState.update { it.copy(downloadFailureReasons = emptyMap()) }
     }
 
     // Security preference mutations
@@ -1440,6 +1916,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun onAppBackgrounded() {
         val cfg = _uiState.value.securityConfig
+        if (cfg.browserMode == BrowserMode.SURFACE) {
+            webViewPool.flushCookies()
+        }
         val hasOpenWebTab = _uiState.value.tabs.any { !it.isStartPage }
         val hasMediaHostTab = _uiState.value.tabs.any { tab ->
             val host = TrackerAndUrlEngine.normalizeHost(tab.url).orEmpty()
@@ -1526,6 +2005,311 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             it.copy(statusBannerMessage = "VPN tunnel disconnected.")
         }
     }
+
+    // AI Screen Trade Pilot
+    fun toggleTradePilotPanel() {
+        val next = !_uiState.value.tradePilot.isPanelExpanded
+        _uiState.update { state ->
+            state.copy(
+                tradePilot = state.tradePilot.copy(
+                    isPanelExpanded = next,
+                    lastError = if (next) null else state.tradePilot.lastError,
+                ),
+            )
+        }
+    }
+
+    fun closeTradePilotPanel() {
+        _uiState.update { state ->
+            state.copy(tradePilot = state.tradePilot.copy(isPanelExpanded = false))
+        }
+    }
+
+    fun setTradeMinConfidence(percent: Int) {
+        val clamped = percent.coerceIn(50, 95)
+        _uiState.update { state ->
+            state.copy(tradePilot = state.tradePilot.copy(minConfidencePercent = clamped))
+        }
+    }
+
+    fun setTradeCooldownSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(5, 60)
+        _uiState.update { state ->
+            state.copy(tradePilot = state.tradePilot.copy(cooldownSeconds = clamped))
+        }
+    }
+
+    fun clearLastTapIndicator() {
+        _uiState.update { state ->
+            state.copy(
+                tradePilot = state.tradePilot.copy(
+                    lastTapNormX = null,
+                    lastTapNormY = null,
+                ),
+            )
+        }
+    }
+
+    fun toggleTradeAutoPilot(enabled: Boolean) {
+        if (!enabled) {
+            tradeAutoPilotJob?.cancel()
+            tradeAutoPilotJob = null
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(isAutoPilotRunning = false),
+                    statusBannerMessage = "AI Auto-Click paused.",
+                )
+            }
+            return
+        }
+        if (_uiState.value.activeTab.isStartPage) {
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        isAutoPilotRunning = false,
+                        lastError = "Open a live trading chart webpage first before starting Auto-Click.",
+                    ),
+                )
+            }
+            return
+        }
+        tradeAutoPilotJob?.cancel()
+        _uiState.update { state ->
+            state.copy(
+                tradePilot = state.tradePilot.copy(
+                    isPanelExpanded = true,
+                    isAutoPilotRunning = true,
+                    lastError = null,
+                ),
+            )
+        }
+        tradeAutoPilotJob = viewModelScope.launch {
+            try {
+                while (isActive && _uiState.value.tradePilot.isAutoPilotRunning) {
+                    val activeTab = _uiState.value.activeTab
+                    if (activeTab.isStartPage) {
+                        _uiState.update { s ->
+                            s.copy(
+                                tradePilot = s.tradePilot.copy(isAutoPilotRunning = false),
+                                statusBannerMessage = "Returned to Start Page — Auto-Click stopped.",
+                            )
+                        }
+                        break
+                    }
+                    runTradeScreenAnalysisInternal(executeClick = true)
+                    val delayMs = _uiState.value.tradePilot.cooldownSeconds.coerceIn(5, 60) * 1000L
+                    delay(delayMs)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } finally {
+                _uiState.update { state ->
+                    state.copy(tradePilot = state.tradePilot.copy(isAutoPilotRunning = false))
+                }
+            }
+        }
+    }
+
+    fun analyzeScreenForTrade(executeClick: Boolean) {
+        if (_uiState.value.tradePilot.isAnalyzing) return
+        viewModelScope.launch {
+            runTradeScreenAnalysisInternal(executeClick = executeClick)
+        }
+    }
+
+    fun executeLastTradeDecision() {
+        val currentState = _uiState.value
+        val activeTab = currentState.activeTab
+        val decision = currentState.tradePilot.lastDecision ?: return
+        if (activeTab.isStartPage || decision.decision == TradeDecision.HOLD) return
+        val target = currentState.tradePilot.lastResolvedTarget ?: TradePilotHelper.resolveClickTarget(
+            decision = decision.decision,
+            aiNormX = decision.normalizedX,
+            aiNormY = decision.normalizedY,
+            domButtons = lastDetectedTradeButtons,
+        )
+        if (target == null) {
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        lastError = "Could not locate ${decision.decision.name} button on this screen. Scan again.",
+                    ),
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            val clicked = dispatchTradeClick(activeTab.id, target.normX, target.normY)
+            _uiState.update { state ->
+                if (clicked) {
+                    state.copy(
+                        tradePilot = state.tradePilot.copy(
+                            lastClickedAction = decision.decision.name,
+                            lastClickedAtMs = System.currentTimeMillis(),
+                            lastTapNormX = target.normX,
+                            lastTapNormY = target.normY,
+                            totalExecutionsCount = state.tradePilot.totalExecutionsCount + 1,
+                            lastError = null,
+                        ),
+                        statusBannerMessage = "Tapped ${decision.decision.name} (${decision.confidence}% confidence)",
+                    )
+                } else {
+                    state.copy(
+                        tradePilot = state.tradePilot.copy(
+                            lastError = "Unable to dispatch touch tap onto WebView.",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun runTradeScreenAnalysisInternal(executeClick: Boolean) {
+        val activeTab = _uiState.value.activeTab
+        if (activeTab.isStartPage) {
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        isAnalyzing = false,
+                        lastError = "Open a webpage with a chart and Buy/Sell buttons first.",
+                    ),
+                )
+            }
+            return
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                tradePilot = state.tradePilot.copy(
+                    isPanelExpanded = true,
+                    isAnalyzing = true,
+                    isCapturingScreen = true,
+                    lastError = null,
+                ),
+            )
+        }
+
+        var capturedBitmap: android.graphics.Bitmap? = null
+        try {
+            // Brief frame delay so any floating overlay inside WebView bounds hides before PixelCopy.
+            delay(60L)
+            val (bitmap, detectedButtons) = suspendCancellableCoroutine { cont ->
+                webViewPool.captureScreenAndTradeControls(activeTab.id) { bmp, buttons ->
+                    if (cont.isActive) {
+                        cont.resume(bmp to buttons)
+                    } else {
+                        runCatching { bmp?.recycle() }
+                    }
+                }
+            }
+            _uiState.update { state ->
+                state.copy(tradePilot = state.tradePilot.copy(isCapturingScreen = false))
+            }
+            capturedBitmap = bitmap
+            lastDetectedTradeButtons = detectedButtons
+            if (bitmap == null) {
+                _uiState.update { state ->
+                    state.copy(
+                        tradePilot = state.tradePilot.copy(
+                            isAnalyzing = false,
+                            lastError = "Could not capture webpage screen yet. Wait for page to render and retry.",
+                        ),
+                    )
+                }
+                return
+            }
+
+            val controlsSummary = TradePilotHelper.formatControlsSummary(detectedButtons)
+            val decision = withContext(Dispatchers.IO) {
+                geminiShieldRepository.analyzeScreenForTradeSignal(
+                    screenshot = bitmap,
+                    pageUrl = activeTab.url,
+                    domControlsSummary = controlsSummary,
+                )
+            }
+
+            val resolvedTarget = TradePilotHelper.resolveClickTarget(
+                decision = decision.decision,
+                aiNormX = decision.normalizedX,
+                aiNormY = decision.normalizedY,
+                domButtons = detectedButtons,
+            )
+
+            val minConfidence = _uiState.value.tradePilot.minConfidencePercent
+            val shouldClickNow = executeClick && TradePilotHelper.shouldAutoExecuteClick(decision, minConfidence)
+            var clicked = false
+            var clickFailureReason: String? = null
+
+            if (shouldClickNow) {
+                if (resolvedTarget != null) {
+                    clicked = dispatchTradeClick(activeTab.id, resolvedTarget.normX, resolvedTarget.normY)
+                    if (!clicked) {
+                        clickFailureReason = "Could not dispatch click on ${decision.decision.name} button."
+                    }
+                } else {
+                    clickFailureReason = "AI chose ${decision.decision.name}, but button position wasn't visible on screen."
+                }
+            }
+
+            _uiState.update { state ->
+                val banner = when {
+                    clicked && resolvedTarget != null ->
+                        "AI Clicked ${decision.decision.name} (${decision.confidence}% • ${decision.assetName})"
+                    executeClick && decision.decision == TradeDecision.HOLD ->
+                        "AI chose HOLD (${decision.marketBias}) — waiting for clearer swing"
+                    executeClick && decision.decision != TradeDecision.HOLD && decision.confidence < minConfidence ->
+                        "Signal ${decision.decision.name} (${decision.confidence}%) below $minConfidence% threshold — skipped"
+                    else -> null
+                }
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        isAnalyzing = false,
+                        isCapturingScreen = false,
+                        lastDecision = decision,
+                        lastResolvedTarget = resolvedTarget,
+                        lastClickedAction = if (clicked) decision.decision.name else state.tradePilot.lastClickedAction,
+                        lastClickedAtMs = if (clicked) System.currentTimeMillis() else state.tradePilot.lastClickedAtMs,
+                        lastTapNormX = if (clicked && resolvedTarget != null) resolvedTarget.normX else null,
+                        lastTapNormY = if (clicked && resolvedTarget != null) resolvedTarget.normY else null,
+                        totalExecutionsCount = if (clicked) state.tradePilot.totalExecutionsCount + 1 else state.tradePilot.totalExecutionsCount,
+                        lastError = clickFailureReason,
+                    ),
+                    statusBannerMessage = banner ?: state.statusBannerMessage,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val friendlyMsg = if (GeminiShieldRepository.isTransientHighDemandError(e)) {
+                "Gemini Vision is briefly busy right now. Tap Analyze again."
+            } else {
+                e.localizedMessage?.takeIf { it.isNotBlank() } ?: "Screen analysis failed."
+            }
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        isAnalyzing = false,
+                        isCapturingScreen = false,
+                        lastError = friendlyMsg,
+                    ),
+                )
+            }
+        } finally {
+            _uiState.update { state ->
+                state.copy(tradePilot = state.tradePilot.copy(isCapturingScreen = false))
+            }
+            runCatching { capturedBitmap?.recycle() }
+        }
+    }
+
+    private suspend fun dispatchTradeClick(tabId: String, normX: Float, normY: Float): Boolean =
+        suspendCancellableCoroutine { cont ->
+            webViewPool.dispatchWebViewClick(tabId, normX, normY) { ok ->
+                if (cont.isActive) {
+                    cont.resume(ok)
+                }
+            }
+        }
 
     // WebViewEventCallbacks
     override fun onPageStarted(tabId: String, url: String) {
@@ -1644,6 +2428,49 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         showLinkActionSheet(url = url, title = title.orEmpty(), fromExternalShare = false)
     }
 
+    override fun onAuthenticatedSiteDetected(host: String) {
+        viewModelScope.launch {
+            prefsRepo.addAuthenticatedSessionHost(host)
+        }
+    }
+
+    override fun onOpenPopupWebView(popupWebView: WebView) {
+        val previous = _popupWebView.value
+        if (previous != null && previous !== popupWebView) {
+            runCatching {
+                (previous.parent as? ViewGroup)?.removeView(previous)
+                previous.stopLoading()
+                previous.destroy()
+            }
+        }
+        _popupWebView.value = popupWebView
+    }
+
+    override fun onClosePopupWebView(popupWebView: WebView) {
+        if (_popupWebView.value === popupWebView || _popupWebView.value == null) {
+            dismissPopupWebView()
+        } else {
+            runCatching {
+                (popupWebView.parent as? ViewGroup)?.removeView(popupWebView)
+                popupWebView.stopLoading()
+                popupWebView.destroy()
+            }
+        }
+    }
+
+    fun dismissPopupWebView() {
+        if (_uiState.value.securityConfig.browserMode == BrowserMode.SURFACE) {
+            webViewPool.flushCookies()
+        }
+        val active = _popupWebView.value ?: return
+        _popupWebView.value = null
+        runCatching {
+            (active.parent as? ViewGroup)?.removeView(active)
+            active.stopLoading()
+            active.destroy()
+        }
+    }
+
     fun exitFullscreenVideo() {
         customVideoCallback?.onCustomViewHidden()
         customVideoCallback = null
@@ -1661,10 +2488,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     override fun onCleared() {
+        tradeAutoPilotJob?.cancel()
         unlockedVaultKey = null
         sessionMonitorSyncService?.stop()
+        dismissPopupWebView()
         exitFullscreenVideo()
-        webViewPool.shredAllSessions()
+        webViewPool.releaseAllViewsPreservingSession()
         super.onCleared()
     }
 }

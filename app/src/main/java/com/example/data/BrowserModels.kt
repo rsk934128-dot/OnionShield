@@ -276,6 +276,8 @@ data class PendingDownloadRequest(
     val contentLength: Long,
     val fileName: String,
     val isOnionSource: Boolean,
+    val sourceTabId: String = "",
+    val refererUrl: String = "",
 )
 
 data class LinkMenuTarget(

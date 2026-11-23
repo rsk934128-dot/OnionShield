@@ -134,13 +134,20 @@ fun GeminiChatScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                expandedHeight = 52.dp,
                 title = {
                     Column {
-                        Text(stringResource(R.string.gemini_ai_title))
+                        Text(
+                            text = stringResource(R.string.gemini_ai_title),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Text(
                             text = stringResource(R.string.gemini_ai_subtitle),
                             style = MaterialTheme.typography.labelSmall,
                             color = shieldColors.surfaceAccent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 },
@@ -269,8 +276,8 @@ fun GeminiChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 6.dp, end = 16.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Active Page Context & One-Tap Page Summary / Privacy Audit Actions
@@ -300,8 +307,8 @@ fun GeminiChatScreen(
                                 ),
                         )
                         Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -472,7 +479,7 @@ fun GeminiChatScreen(
                                     strokeWidth = 2.5.dp,
                                 )
                                 Text(
-                                    text = "Thinking with Gemini 3.8 Flash…",
+                                    text = "Thinking with Gemini AI…",
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                             }
@@ -500,33 +507,55 @@ fun GeminiChatScreen(
                             color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.65f)),
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.ErrorOutline,
-                                    contentDescription = "Gemini error",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                Row(
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    Text(
-                                        text = "Gemini Request Error",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.error,
+                                    Icon(
+                                        imageVector = Icons.Rounded.ErrorOutline,
+                                        contentDescription = "Gemini error",
+                                        tint = MaterialTheme.colorScheme.error,
                                     )
-                                    Text(
-                                        text = state.message,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = "Gemini Request Error",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                        Text(
+                                            text = state.message,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
                                 }
-                                TextButton(onClick = { assistantViewModel.dismissError() }) {
-                                    Text("Dismiss")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TextButton(
+                                        onClick = { assistantViewModel.dismissError() },
+                                        modifier = Modifier.testTag("gemini_dismiss_error_button"),
+                                    ) {
+                                        Text("Dismiss")
+                                    }
+                                    if (state.canRetry) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Button(
+                                            onClick = { assistantViewModel.retryLastRequest() },
+                                            modifier = Modifier.testTag("gemini_retry_button"),
+                                        ) {
+                                            Text("Retry")
+                                        }
+                                    }
                                 }
                             }
                         }

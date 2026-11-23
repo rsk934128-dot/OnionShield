@@ -24,7 +24,22 @@ sealed interface GeminiUiState {
         val text: String,
         val audit: PagePrivacyAudit? = null,
     ) : GeminiUiState
-    data class Error(val message: String) : GeminiUiState
+    data class Error(
+        val message: String,
+        val canRetry: Boolean = false,
+    ) : GeminiUiState
+}
+
+private sealed interface PendingGeminiRequest {
+    data class Chat(
+        val prompt: String,
+        val pageContext: PageAiContext?,
+        val displayLabel: String?,
+    ) : PendingGeminiRequest
+
+    data class Audit(
+        val pageContext: PageAiContext,
+    ) : PendingGeminiRequest
 }
 
 class GeminiAssistantViewModel(
@@ -40,6 +55,8 @@ class GeminiAssistantViewModel(
     private val _lastPrompt = MutableStateFlow("")
     val lastPrompt: StateFlow<String> = _lastPrompt.asStateFlow()
 
+    private var pendingFailedRequest: PendingGeminiRequest? = null
+
     fun sendMessage(
         prompt: String,
         pageContext: PageAiContext?,
@@ -49,16 +66,30 @@ class GeminiAssistantViewModel(
         if (cleanPrompt.isEmpty()) return
         if (_uiState.value is GeminiUiState.Loading || _uiState.value is GeminiUiState.Streaming) return
 
-        val priorHistory = _messages.value
         val shownUserText = displayLabel?.trim()?.takeIf { it.isNotEmpty() } ?: cleanPrompt
         val promptWithContext = GeminiShieldRepository.buildContextualPrompt(cleanPrompt, pageContext)
+
+        // Reuse any unanswered trailing USER bubble when retrying the same prompt instead of duplicating it.
+        val currentList = _messages.value
+        val existingPendingMatch = currentList.lastOrNull()?.let { last ->
+            last.role == ChatRole.USER && last.text == shownUserText && last.pageUrl == pageContext?.url
+        } == true
+        val priorHistory = if (existingPendingMatch) currentList.dropLast(1) else currentList
+        if (!existingPendingMatch) {
+            _messages.value = priorHistory + GeminiChatMessage(
+                role = ChatRole.USER,
+                text = shownUserText,
+                promptText = promptWithContext,
+                pageUrl = pageContext?.url,
+            )
+        }
         _lastPrompt.value = shownUserText
-        _messages.value = priorHistory + GeminiChatMessage(
-            role = ChatRole.USER,
-            text = shownUserText,
-            promptText = promptWithContext,
-            pageUrl = pageContext?.url,
+        val failedRequest = PendingGeminiRequest.Chat(
+            prompt = cleanPrompt,
+            pageContext = pageContext,
+            displayLabel = displayLabel,
         )
+        pendingFailedRequest = failedRequest
 
         viewModelScope.launch {
             _uiState.value = GeminiUiState.Loading
@@ -76,6 +107,7 @@ class GeminiAssistantViewModel(
                 }
                 val finalAnswer = accumulated.toString().trim()
                 if (finalAnswer.isNotEmpty()) {
+                    pendingFailedRequest = null
                     _messages.value = _messages.value + GeminiChatMessage(
                         role = ChatRole.MODEL,
                         text = finalAnswer,
@@ -83,19 +115,24 @@ class GeminiAssistantViewModel(
                     )
                     _uiState.value = GeminiUiState.Success(text = finalAnswer)
                 } else {
-                    _uiState.value = GeminiUiState.Error("Gemini returned an empty response.")
+                    _uiState.value = GeminiUiState.Error(
+                        message = "Gemini returned an empty response. Tap Retry to try again.",
+                        canRetry = true,
+                    )
                 }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Gemini chat streaming request timed out", e)
                 _uiState.value = GeminiUiState.Error(
-                    "Gemini request timed out after 60 seconds. Please check your connection and try again.",
+                    message = "Gemini request timed out after 60 seconds. Tap Retry to try again.",
+                    canRetry = true,
                 )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini chat streaming inference failed", e)
                 _uiState.value = GeminiUiState.Error(
-                    e.localizedMessage ?: "Failed to reach Gemini via Firebase AI Logic.",
+                    message = formatUserFacingError(e, "Failed to reach Gemini via Firebase AI Logic."),
+                    canRetry = true,
                 )
             }
         }
@@ -117,13 +154,20 @@ class GeminiAssistantViewModel(
     fun auditCurrentPage(pageContext: PageAiContext) {
         if (_uiState.value is GeminiUiState.Loading || _uiState.value is GeminiUiState.Streaming) return
         val label = "Privacy & Safety Audit: ${pageContext.title.ifBlank { pageContext.url }}"
+        val currentList = _messages.value
+        val existingPendingMatch = currentList.lastOrNull()?.let { last ->
+            last.role == ChatRole.USER && last.text == label && last.pageUrl == pageContext.url
+        } == true
+        if (!existingPendingMatch) {
+            _messages.value = currentList + GeminiChatMessage(
+                role = ChatRole.USER,
+                text = label,
+                promptText = label,
+                pageUrl = pageContext.url,
+            )
+        }
         _lastPrompt.value = label
-        _messages.value = _messages.value + GeminiChatMessage(
-            role = ChatRole.USER,
-            text = label,
-            promptText = label,
-            pageUrl = pageContext.url,
-        )
+        pendingFailedRequest = PendingGeminiRequest.Audit(pageContext)
 
         viewModelScope.launch {
             _uiState.value = GeminiUiState.Loading
@@ -131,6 +175,7 @@ class GeminiAssistantViewModel(
                 val audit = withTimeout(INFERENCE_TIMEOUT_MS) {
                     repository.runStructuredPrivacyAudit(pageContext)
                 }
+                pendingFailedRequest = null
                 _messages.value = _messages.value + GeminiChatMessage(
                     role = ChatRole.MODEL,
                     text = audit.summary,
@@ -144,21 +189,42 @@ class GeminiAssistantViewModel(
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Structured page audit timed out", e)
                 _uiState.value = GeminiUiState.Error(
-                    "Page audit timed out after 60 seconds. Please try again.",
+                    message = "Page audit timed out after 60 seconds. Tap Retry to try again.",
+                    canRetry = true,
                 )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Structured page audit failed", e)
                 _uiState.value = GeminiUiState.Error(
-                    e.localizedMessage ?: "Unable to analyze this page with Gemini.",
+                    message = formatUserFacingError(e, "Unable to analyze this page with Gemini."),
+                    canRetry = true,
                 )
+            }
+        }
+    }
+
+    fun retryLastRequest() {
+        if (_uiState.value is GeminiUiState.Loading || _uiState.value is GeminiUiState.Streaming) return
+        when (val pending = pendingFailedRequest) {
+            is PendingGeminiRequest.Chat -> sendMessage(
+                prompt = pending.prompt,
+                pageContext = pending.pageContext,
+                displayLabel = pending.displayLabel,
+            )
+            is PendingGeminiRequest.Audit -> auditCurrentPage(pending.pageContext)
+            null -> {
+                val fallbackPrompt = _lastPrompt.value.trim()
+                if (fallbackPrompt.isNotEmpty()) {
+                    sendMessage(prompt = fallbackPrompt, pageContext = null)
+                }
             }
         }
     }
 
     fun clearChat() {
         if (_uiState.value is GeminiUiState.Loading || _uiState.value is GeminiUiState.Streaming) return
+        pendingFailedRequest = null
         _messages.value = emptyList()
         _lastPrompt.value = ""
         _uiState.value = GeminiUiState.Idle
@@ -167,6 +233,15 @@ class GeminiAssistantViewModel(
     fun dismissError() {
         if (_uiState.value is GeminiUiState.Error) {
             _uiState.value = GeminiUiState.Idle
+        }
+    }
+
+    private fun formatUserFacingError(error: Exception, fallback: String): String {
+        val raw = error.localizedMessage?.trim().orEmpty().ifBlank { fallback }
+        return if (GeminiShieldRepository.isTransientHighDemandError(error)) {
+            "Gemini servers are briefly busy right now. Tap Retry to try again."
+        } else {
+            raw
         }
     }
 

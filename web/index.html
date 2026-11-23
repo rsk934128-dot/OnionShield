@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B0F19" />
+  <meta name="referrer" content="no-referrer" />
+  <title>OnionShield — Dual-Mode Privacy Browser &amp; Companion</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body data-mode="surface">
+  <div class="app-frame">
+    <!-- Adaptive Desktop/Tablet Navigation Rail -->
+    <aside class="nav-rail" aria-label="Primary Navigation">
+      <div class="rail-brand" title="OnionShield">
+        <img src="/icon.svg" alt="OnionShield" class="brand-logo" />
+      </div>
+      <nav class="rail-items">
+        <button class="nav-item active" data-view="browser" type="button">
+          <span class="nav-icon" aria-hidden="true">🛡️</span>
+          <span class="nav-label">Browser</span>
+        </button>
+        <button class="nav-item" data-view="tools" type="button">
+          <span class="nav-icon" aria-hidden="true">🧪</span>
+          <span class="nav-label">Shield Lab</span>
+        </button>
+        <button class="nav-item" data-view="library" type="button">
+          <span class="nav-icon" aria-hidden="true">🔖</span>
+          <span class="nav-label">Library</span>
+        </button>
+        <button class="nav-item" data-view="vault" type="button">
+          <span class="nav-icon" aria-hidden="true">🔐</span>
+          <span class="nav-label">Vault</span>
+        </button>
+        <button class="nav-item" data-view="guard" type="button">
+          <span class="nav-icon" aria-hidden="true">⏱️</span>
+          <span class="nav-label">Guard</span>
+        </button>
+        <button class="nav-item" data-view="cloud" type="button">
+          <span class="nav-icon" aria-hidden="true">☁️</span>
+          <span class="nav-label">Sync &amp; APK</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Workspace -->
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="topbar-row">
+          <div class="brand">
+            <img src="/icon.svg" alt="OnionShield Logo" class="brand-logo mobile-only" />
+            <div>
+              <div class="brand-title">OnionShield</div>
+              <div class="brand-sub" id="modeSubtitle">Surface Web • Hardened Mode</div>
+            </div>
+          </div>
+
+          <div class="topbar-actions">
+            <div class="mode-switch" role="group" aria-label="Browser Mode">
+              <button id="btnSurfaceMode" class="mode-btn active-surface" type="button">Surface</button>
+              <button id="btnTorMode" class="mode-btn" type="button">Tor .onion</button>
+            </div>
+            <div class="score-pill" id="securityScorePill" title="Hardening Score">
+              <span class="dot"></span>
+              <span id="securityScoreText">Score 88%</span>
+            </div>
+            <button id="btnInstallPwa" class="secondary-btn compact-btn" type="button">Install App</button>
+            <button id="btnShredSession" class="danger-btn compact-btn" type="button" title="Wipe tabs, viewport, and rotate seed">Shred</button>
+          </div>
+        </div>
+
+        <!-- Tabs Bar + Omnibox -->
+        <div class="tabs-bar" id="tabsBar"></div>
+
+        <form id="omniboxForm" class="omnibox" autocomplete="off">
+          <select id="searchEngine" aria-label="Private Search Engine">
+            <option value="ddg">DuckDuckGo</option>
+            <option value="startpage">Startpage</option>
+            <option value="brave">Brave Search</option>
+          </select>
+          <span class="omnibox-lock" id="omniboxLockBadge" title="HTTPS Enforcement">🔒</span>
+          <input
+            id="omniboxInput"
+            type="text"
+            placeholder="Search privately or enter URL / .onion…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="btnBookmarkPage" class="icon-btn" type="button" title="Toggle Bookmark" aria-label="Toggle Bookmark">☆</button>
+          <button id="btnHomePage" class="icon-btn" type="button" title="Start Page" aria-label="Start Page">⌂</button>
+          <button type="submit" class="primary-btn">Go</button>
+        </form>
+      </header>
+
+      <div id="toastBanner" class="toast-banner hidden" role="status"></div>
+
+      <div id="pwaInstallGuide" class="notice-banner install-guide-banner" aria-hidden="true">
+        <div class="install-guide-row">
+          <div id="pwaInstallGuideText">
+            <strong>Install OnionShield Web App (PWA):</strong>
+            Android Chrome-এ উপরের <strong>⋮</strong> মেনু থেকে <strong>"Install app / Add to Home screen"</strong> অথবা iPhone Safari-তে <strong>Share → Add to Home Screen</strong> চাপুন।
+          </div>
+          <button id="btnGuideInstallNow" class="primary-btn hidden" type="button">Add to Home Screen</button>
+        </div>
+      </div>
+
+      <!-- View Container -->
+      <main class="view-container">
+        <!-- VIEW 1: BROWSER / START PAGE -->
+        <section id="view-browser" class="view-panel active">
+          <div id="startPageContainer">
+            <section class="hero-card" id="heroCard">
+              <div class="hero-badge" id="modeBadge">
+                <span class="dot"></span>
+                <span id="modeBadgeText">SURFACE WEB PRIVATE LAUNCHER</span>
+              </div>
+              <h1 id="heroTitle">Hardened Dual-Mode Privacy Browser</h1>
+              <p class="hero-desc" id="heroDesc">
+                একইসাথে সব ডিভাইসে (Web, Android, iOS ও Desktop) ব্যবহারযোগ্য OnionShield PWA — প্রাইভেট সার্চ, ট্র্যাকার ক্লিনার, AES-256 ভল্ট, Firebase ক্লাউড সিঙ্ক ও Android APK পোর্টালসহ।
+              </p>
+              <div id="onionAlert" class="notice-banner hidden">
+                <strong>Tor / .onion Mode Active:</strong> ওয়েব ব্রাউজার সরাসরি <code>127.0.0.1:9050</code> SOCKS5 টানেল করতে পারে না। সম্পূর্ণ নেটিভ <code>.onion</code> ও No-Script WebView ব্রাউজিংয়ের জন্য নিচের <strong>Sync &amp; APK</strong> ট্যাব থেকে Orbot-সহ <strong>OnionShield Android APK</strong> ইনস্টল করুন।
+              </div>
+            </section>
+
+            <!-- Telemetry Cards -->
+            <section class="stats-grid">
+              <article class="stat-card">
+                <span class="stat-label">Trackers Cleaned</span>
+                <strong class="stat-value" id="statTrackers">0</strong>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Active Shields</span>
+                <strong class="stat-value" id="statShields">7 / 8</strong>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Vault Records</span>
+                <strong class="stat-value" id="statVaultCount">0</strong>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Fingerprint Seed</span>
+                <div class="seed-row">
+                  <strong class="stat-value mono" id="statSeed">A1B2C3D4</strong>
+                  <button id="btnRotateSeed" class="secondary-btn mini-btn" type="button">Rotate</button>
+                </div>
+              </article>
+            </section>
+
+            <!-- Pinned Quick Apps -->
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Pinned Quick Apps</h2>
+                  <p class="muted">Tap to open cleanly or pin your own sites</p>
+                </div>
+                <button id="btnTogglePinForm" class="secondary-btn compact-btn" type="button">+ Pin Site</button>
+              </div>
+              <form id="pinAppForm" class="inline-form hidden">
+                <input id="pinAppTitle" type="text" placeholder="Title (e.g. Wikipedia)" required />
+                <input id="pinAppUrl" type="text" placeholder="https://example.org" required />
+                <button type="submit" class="primary-btn">Pin</button>
+              </form>
+              <div id="pinnedAppsGrid" class="apps-grid"></div>
+            </section>
+
+            <!-- Security Shield Toggles -->
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Security Shield Controls</h2>
+                  <p class="muted">Real-time browser hardening &amp; sandbox policy</p>
+                </div>
+              </div>
+              <div id="shieldsGrid" class="shields-grid"></div>
+            </section>
+          </div>
+
+          <!-- Embedded Sandboxed Page Viewport -->
+          <div id="webViewportContainer" class="viewport-shell hidden">
+            <div class="viewport-bar">
+              <div class="viewport-url-meta">
+                <span class="tag-pill" id="viewportSandboxBadge">SANDBOX: NO-SCRIPT</span>
+                <span class="mono truncate" id="viewportCurrentUrl">https://</span>
+              </div>
+              <div class="viewport-controls">
+                <button id="btnOpenExternalTab" class="primary-btn compact-btn" type="button">Open in Private Tab</button>
+                <button id="btnReloadFrame" class="secondary-btn compact-btn" type="button">Reload</button>
+                <button id="btnCloseFrame" class="secondary-btn compact-btn" type="button">Start Page</button>
+              </div>
+            </div>
+            <div class="viewport-note">
+              Security Note: Some sites block embedded iframes via <code>X-Frame-Options</code> / CSP. If a page stays blank, tap <strong>Open in Private Tab</strong> (uses <code>noopener,noreferrer</code>).
+            </div>
+            <iframe
+              id="sandboxFrame"
+              title="OnionShield Sandboxed Viewport"
+              class="sandbox-iframe"
+              referrerpolicy="no-referrer"
+              sandbox="allow-forms allow-popups"
+            ></iframe>
+          </div>
+        </section>
+
+        <!-- VIEW 2: PRIVACY LAB & TOOLS -->
+        <section id="view-tools" class="view-panel">
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Browser Leak &amp; Fingerprint Audit</h2>
+                  <p class="muted">Live checks on your current device browser</p>
+                </div>
+                <button id="btnRunAudit" class="secondary-btn" type="button">Run Audit</button>
+              </div>
+              <div id="auditResults" class="audit-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Tracking Parameter Stripper</h2>
+                  <p class="muted">Strips utm_*, fbclid, gclid, igshid &amp; upgrades HTTP → HTTPS</p>
+                </div>
+              </div>
+              <div class="stack-form">
+                <input id="dirtyUrlInput" type="url" placeholder="Paste URL with trackers…" />
+                <div class="action-row">
+                  <button id="btnCleanUrl" class="primary-btn" type="button">Sanitize URL</button>
+                  <button id="btnCopyClean" class="secondary-btn" type="button">Copy</button>
+                  <button id="btnOpenClean" class="secondary-btn" type="button">Open</button>
+                </div>
+                <div id="cleanUrlOutput" class="mono-output">Sanitized URL will appear here…</div>
+              </div>
+            </article>
+          </div>
+
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>V3 .onion Address Validator</h2>
+                  <p class="muted">Distinguishes 56-character V3 services from deprecated V2 addresses</p>
+                </div>
+              </div>
+              <div class="stack-form">
+                <input id="onionCheckInput" type="text" placeholder="Enter .onion URL (e.g. duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion)" />
+                <button id="btnCheckOnion" class="primary-btn" type="button">Validate Address</button>
+                <div id="onionCheckResult" class="mono-output">Paste any .onion or clearnet URL to verify.</div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Pluggable Transport Bridge Validator</h2>
+                  <p class="muted">Validates obfs4, Snowflake, or meek-azure Tor bridge lines</p>
+                </div>
+              </div>
+              <div class="stack-form">
+                <textarea id="bridgeLinesInput" rows="3" placeholder="Bridge obfs4 192.0.2.10:443 0123456789ABCDEF0123456789ABCDEF01234567 cert=abcd iat-mode=0"></textarea>
+                <button id="btnValidateBridges" class="secondary-btn" type="button">Validate Bridge Lines</button>
+                <div id="bridgeCheckResult" class="mono-output">Enter one bridge line per line.</div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- VIEW 3: BOOKMARKS & HISTORY LIBRARY -->
+        <section id="view-library" class="view-panel">
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Bookmarks</h2>
+                  <p class="muted">Synced locally and with Firebase Cloud Sync when signed in</p>
+                </div>
+              </div>
+              <form id="addBookmarkForm" class="inline-form">
+                <input id="bookmarkTitleInput" type="text" placeholder="Site title" required />
+                <input id="bookmarkUrlInput" type="text" placeholder="https://example.org" required />
+                <button type="submit" class="primary-btn">Save</button>
+              </form>
+              <div id="bookmarksList" class="item-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Surface Browsing History</h2>
+                  <p class="muted">Tor mode skips history persistence</p>
+                </div>
+                <button id="btnClearHistory" class="danger-btn compact-btn" type="button">Clear All</button>
+              </div>
+              <div id="historyList" class="item-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- VIEW 4: AES-256-GCM ENCRYPTED VAULT -->
+        <section id="view-vault" class="view-panel">
+          <article class="panel vault-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Secure Vault (WebCrypto AES-256-GCM + PBKDF2)</h2>
+                <p class="muted">Zero-knowledge local encryption — keys never leave your browser memory</p>
+              </div>
+              <div class="action-row">
+                <button id="btnLockVault" class="secondary-btn compact-btn hidden" type="button">Lock Vault</button>
+                <button id="btnWipeVault" class="danger-btn compact-btn" type="button">Wipe Vault</button>
+              </div>
+            </div>
+
+            <div id="vaultLockedView" class="stack-form">
+              <p class="muted" id="vaultPromptText">Enter a master passphrase/PIN to create or unlock your AES-256 encrypted vault.</p>
+              <input id="vaultPassphraseInput" type="password" placeholder="Master PIN or Passphrase (min 4 chars)" />
+              <button id="btnUnlockVault" class="primary-btn" type="button">Unlock / Initialize Vault</button>
+            </div>
+
+            <div id="vaultUnlockedView" class="hidden">
+              <form id="addVaultForm" class="vault-form">
+                <input id="vaultEntryTitle" type="text" placeholder="Label (e.g. Exchange Login)" required />
+                <input id="vaultEntrySite" type="text" placeholder="Site / Domain (optional)" />
+                <input id="vaultEntryUsername" type="text" placeholder="Username / Email" />
+                <input id="vaultEntrySecret" type="password" placeholder="Password / Secret Note" required />
+                <button type="submit" class="primary-btn">Encrypt &amp; Save</button>
+              </form>
+              <div id="vaultEntriesList" class="item-list"></div>
+            </div>
+          </article>
+        </section>
+
+        <!-- VIEW 5: SESSION GUARD & PROVABLY FAIR -->
+        <section id="view-guard" class="view-panel">
+          <div class="stats-grid">
+            <article class="stat-card">
+              <span class="stat-label">Session Elapsed</span>
+              <strong class="stat-value" id="guardElapsed">0m 00s</strong>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Total Rounds</span>
+              <strong class="stat-value" id="guardTotalRounds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Win Rate</span>
+              <strong class="stat-value" id="guardWinRate">0%</strong>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Net Profit</span>
+              <strong class="stat-value" id="guardNetProfit">0.00</strong>
+            </article>
+          </div>
+
+          <div id="guardAlertBanner" class="notice-banner hidden"></div>
+
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Session Guard Limits &amp; Round Logger</h2>
+                  <p class="muted">Track session duration, budget thresholds, and completed rounds</p>
+                </div>
+                <button id="btnResetGuardTimer" class="secondary-btn compact-btn" type="button">Reset Timer</button>
+              </div>
+              <form id="guardLimitForm" class="inline-form">
+                <input id="guardTimeLimitInput" type="number" min="5" max="720" value="45" aria-label="Time limit minutes" />
+                <input id="guardBudgetLimitInput" type="number" min="1" step="1" value="100" aria-label="Loss budget limit" />
+                <button type="submit" class="secondary-btn">Save Limits</button>
+              </form>
+              <form id="logRoundForm" class="vault-form">
+                <input id="roundSiteInput" type="text" placeholder="Site host (e.g. demo.local)" required />
+                <input id="roundBetInput" type="number" step="0.01" min="0.01" placeholder="Bet amount" required />
+                <input id="roundCrashInput" type="number" step="0.01" min="1.0" placeholder="Crash multiplier (e.g. 2.40)" required />
+                <input id="roundCashoutInput" type="number" step="0.01" min="0" placeholder="Cashout x (0 if busted)" required />
+                <button type="submit" class="primary-btn">Log Round</button>
+              </form>
+              <div class="panel-sub-actions">
+                <button id="btnClearRounds" class="danger-btn compact-btn" type="button">Clear Rounds</button>
+              </div>
+              <div id="roundsList" class="item-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Provably Fair SHA-256 / HMAC Verifier</h2>
+                  <p class="muted">Verify post-round server seed commitments locally using WebCrypto</p>
+                </div>
+              </div>
+              <form id="fairVerifyForm" class="stack-form">
+                <input id="fairServerSeed" type="text" placeholder="Revealed Server Seed" required />
+                <input id="fairClientSeed" type="text" placeholder="Client Seed (optional for HMAC)" />
+                <input id="fairNonce" type="text" placeholder="Nonce (optional)" />
+                <input id="fairExpectedHash" type="text" placeholder="Expected SHA-256 Commitment Hex" required />
+                <button type="submit" class="primary-btn">Verify Commitment</button>
+                <div id="fairVerifyResult" class="mono-output">Enter server seed and expected SHA-256 commitment.</div>
+              </form>
+            </article>
+          </div>
+        </section>
+
+        <!-- VIEW 6: FIREBASE CLOUD SYNC & ANDROID APK RELEASE -->
+        <section id="view-cloud" class="view-panel">
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Firebase Cloud Sync (Cross-Device)</h2>
+                  <p class="muted">Sync Bookmarks, Pinned Apps &amp; History with the OnionShield Android app</p>
+                </div>
+              </div>
+              <div id="cloudAuthCard" class="stack-form">
+                <div id="cloudAuthStatus" class="mono-output">Checking Firebase connection…</div>
+                <div class="action-row">
+                  <button id="btnGoogleSignIn" class="primary-btn" type="button">Sign in with Google</button>
+                  <button id="btnSyncNow" class="secondary-btn hidden" type="button">Sync Now</button>
+                  <button id="btnGoogleSignOut" class="danger-btn hidden" type="button">Sign Out</button>
+                </div>
+                <div id="cloudSyncStats" class="muted"></div>
+              </div>
+            </article>
+
+            <article class="panel apk-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Android APK Release &amp; Mobile QR</h2>
+                  <p class="muted">Download the signed Android APK from GitHub Releases for native Tor SOCKS5 routing</p>
+                </div>
+              </div>
+              <div class="repo-fetch-row">
+                <input
+                  id="githubRepoInput"
+                  type="text"
+                  value="rsk934128-dot/OmniSafe-Browser"
+                  placeholder="owner/repo"
+                  aria-label="GitHub repository owner/name"
+                />
+                <button id="btnFetchRelease" class="primary-btn" type="button">Fetch APK</button>
+              </div>
+              <div id="releaseStatus" class="release-status">
+                Loading latest Android APK release from <code>rsk934128-dot/OmniSafe-Browser</code>…
+              </div>
+              <div id="apkQrContainer" class="apk-qr-card hidden">
+                <div class="apk-qr-frame">
+                  <canvas id="apkQrCanvas" aria-label="QR code for latest APK download link"></canvas>
+                </div>
+                <div class="apk-qr-meta">
+                  <h3>Scan on Android to Install APK</h3>
+                  <p class="muted">ফোনের ক্যামেরা দিয়ে QR কোড স্ক্যান করে সরাসরি APK ডাউনলোড করুন।</p>
+                  <div id="apkQrUrlLabel" class="qr-url-preview"></div>
+                  <div class="action-row">
+                    <button id="btnCopyApkLink" class="secondary-btn" type="button">Copy APK Link</button>
+                    <button id="btnDownloadQr" class="secondary-btn" type="button">Save QR PNG</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <!-- Mobile Bottom Navigation -->
+      <nav class="bottom-nav" aria-label="Mobile Navigation">
+        <button class="nav-item active" data-view="browser" type="button">
+          <span class="nav-icon" aria-hidden="true">🛡️</span>
+          <span class="nav-label">Browser</span>
+        </button>
+        <button class="nav-item" data-view="tools" type="button">
+          <span class="nav-icon" aria-hidden="true">🧪</span>
+          <span class="nav-label">Lab</span>
+        </button>
+        <button class="nav-item" data-view="library" type="button">
+          <span class="nav-icon" aria-hidden="true">🔖</span>
+          <span class="nav-label">Library</span>
+        </button>
+        <button class="nav-item" data-view="vault" type="button">
+          <span class="nav-icon" aria-hidden="true">🔐</span>
+          <span class="nav-label">Vault</span>
+        </button>
+        <button class="nav-item" data-view="guard" type="button">
+          <span class="nav-icon" aria-hidden="true">⏱️</span>
+          <span class="nav-label">Guard</span>
+        </button>
+        <button class="nav-item" data-view="cloud" type="button">
+          <span class="nav-icon" aria-hidden="true">☁️</span>
+          <span class="nav-label">Sync</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <script src="/qr.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

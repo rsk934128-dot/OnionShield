@@ -1,0 +1,20 @@
+{
+  "name": "OnionShield — Dual-Mode Privacy Browser",
+  "short_name": "OnionShield",
+  "description": "Cross-platform OnionShield PWA: Dual-Mode Surface & Tor toolkit, Security Shields, AES-256 Vault, Firebase Cloud Sync, Session Guard, and Android APK portal.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B0F19",
+  "theme_color": "#0B0F19",
+  "categories": ["utilities", "security", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -168,6 +168,17 @@ object TrackerAndUrlEngine {
         }
     }
 
+    private fun hasYouTubeAdQueryMarker(encodedQuery: String): Boolean {
+        if (encodedQuery.isBlank()) return false
+        return encodedQuery.split('&').any { pair ->
+            pair.startsWith("oad=") ||
+                pair.startsWith("ad_type=") ||
+                pair.startsWith("adformat=") ||
+                pair.startsWith("ad_cpn=") ||
+                pair == "is_ad=1"
+        }
+    }
+
     fun isSiteWhitelisted(pageUrl: String?, whitelistHosts: Set<String>): Boolean {
         if (whitelistHosts.isEmpty()) return false
         val pageHost = normalizeHost(pageUrl) ?: return false
@@ -209,7 +220,7 @@ object TrackerAndUrlEngine {
         val query = parsed.encodedQuery?.lowercase().orEmpty()
         if ((rawHost == "googlevideo.com" || rawHost.endsWith(".googlevideo.com")) &&
             path.contains("/videoplayback") &&
-            (query.contains("oad=") || query.contains("ad_type=") || query.contains("ctier=l"))
+            hasYouTubeAdQueryMarker(query)
         ) {
             return true
         }

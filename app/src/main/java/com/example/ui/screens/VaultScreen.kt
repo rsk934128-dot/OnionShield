@@ -11,6 +11,7 @@ import android.security.keystore.KeyPermanentlyInvalidatedException
 import androidx.activity.compose.BackHandler
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import com.example.ui.components.WebsiteLogo
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -621,7 +622,19 @@ private fun VaultEntryCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(icon, contentDescription = item.entryType.label, tint = accent, modifier = Modifier.size(20.dp))
+                    if (item.url.isNotBlank()) {
+                        WebsiteLogo(
+                            url = item.url,
+                            title = item.title,
+                            accentColor = accent,
+                            size = 30.dp,
+                            cornerRadius = 8.dp,
+                            isOnion = item.isOnion,
+                            allowNetworkFetch = false,
+                        )
+                    } else {
+                        Icon(icon, contentDescription = item.entryType.label, tint = accent, modifier = Modifier.size(20.dp))
+                    }
                     Column {
                         Text(
                             text = item.title,

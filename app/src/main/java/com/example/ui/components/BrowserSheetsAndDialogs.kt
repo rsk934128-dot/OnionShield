@@ -178,12 +178,24 @@ fun TabSwitcherSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(
-                                imageVector = if (isTor) Icons.Rounded.Security else Icons.Rounded.Language,
-                                contentDescription = if (isTor) "Tor tab" else "Surface tab",
-                                tint = accent,
-                                modifier = Modifier.size(20.dp),
-                            )
+                            if (tab.isStartPage) {
+                                Icon(
+                                    imageVector = if (isTor) Icons.Rounded.Security else Icons.Rounded.Language,
+                                    contentDescription = if (isTor) "Tor tab" else "Surface tab",
+                                    tint = accent,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            } else {
+                                WebsiteLogo(
+                                    url = tab.url,
+                                    title = tab.title,
+                                    accentColor = accent,
+                                    size = 30.dp,
+                                    cornerRadius = 8.dp,
+                                    isOnion = tab.isOnionAddress || isTor,
+                                    allowNetworkFetch = !isTor && !tab.isOnionAddress,
+                                )
+                            }
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -622,7 +634,13 @@ fun DownloadSandboxDialog(
                             }
                         }
                         Text(
-                            text = "Type: ${request.mimeType}",
+                            text = buildString {
+                                append("Type: ${request.mimeType}")
+                                if (request.contentLength > 0L) {
+                                    append(" • ")
+                                    append(com.example.browser.DownloadFileHelper.formatByteSize(request.contentLength))
+                                }
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -635,7 +653,7 @@ fun DownloadSandboxDialog(
                 }
                 if (request.isOnionSource) {
                     Text(
-                        text = "Warning: System DownloadManager runs outside the WebView proxy tunnel. Do not open untrusted executables or documents with macros.",
+                        text = "Tor downloads are routed directly through your local Tor SOCKS5 proxy. Only install APKs or open files from trusted sources.",
                         style = MaterialTheme.typography.bodySmall,
                         color = shieldColors.warningAmber,
                     )
@@ -665,6 +683,7 @@ fun DownloadSandboxDialog(
 @Composable
 fun LinkActionSheet(
     target: LinkMenuTarget,
+    isTorMode: Boolean = false,
     onInstallToHomeScreenAndMenu: (title: String, url: String) -> Unit,
     onPinToStartMenuOnly: (title: String, url: String) -> Unit,
     onOpenInNewTab: (String) -> Unit,
@@ -695,8 +714,17 @@ fun LinkActionSheet(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                WebsiteLogo(
+                    url = target.url,
+                    title = displayTitle,
+                    accentColor = accent,
+                    size = 38.dp,
+                    cornerRadius = 10.dp,
+                    isOnion = isOnion,
+                    allowNetworkFetch = !isTorMode && !isOnion,
+                )
                 Text(
                     text = if (target.isSharedFromExternalApp) "Shared Link Ready" else displayTitle,
                     style = MaterialTheme.typography.titleLarge,

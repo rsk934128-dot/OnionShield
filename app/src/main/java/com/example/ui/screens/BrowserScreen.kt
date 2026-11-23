@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.AutoGraph
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Close
@@ -103,6 +105,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
@@ -128,6 +132,10 @@ import com.example.ui.components.QuickShieldSheet
 import com.example.ui.components.ShredConfirmDialog
 import com.example.ui.components.StartPageContent
 import com.example.ui.components.TabSwitcherSheet
+import com.example.ui.components.TradePilotHudCard
+import com.example.ui.components.TradeTapIndicatorOverlay
+import com.example.ui.components.WebOverlayAiControls
+import com.example.ui.components.WebsiteLogo
 import com.example.ui.theme.LocalShieldColors
 
 @Composable
@@ -178,6 +186,7 @@ fun BrowserScreen(
         }
     }
     val fullscreenCustomView by viewModel.fullscreenCustomView.collectAsStateWithLifecycle()
+    val popupWebView by viewModel.popupWebView.collectAsStateWithLifecycle()
 
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showQuickShields by remember { mutableStateOf(false) }
@@ -224,7 +233,7 @@ fun BrowserScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(start = 10.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -248,7 +257,7 @@ fun BrowserScreen(
                                     .testTag("live_service_indicator_chip"),
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
@@ -280,7 +289,7 @@ fun BrowserScreen(
                                 .testTag("top_vpn_chip"),
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
@@ -332,8 +341,7 @@ fun BrowserScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp),
+                        .padding(start = 10.dp, end = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -349,7 +357,7 @@ fun BrowserScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -650,6 +658,23 @@ fun BrowserScreen(
                                         onOpenGeminiAssistant()
                                     },
                                 )
+                                if (!activeTab.isStartPage) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.trade_pilot_menu_item)) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Rounded.AutoGraph,
+                                                contentDescription = null,
+                                                tint = accentColor,
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("menu_trade_pilot"),
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            viewModel.toggleTradePilotPanel()
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Scan QR Code URL") },
                                     leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, contentDescription = null) },
@@ -768,7 +793,7 @@ fun BrowserScreen(
             }
         },
         floatingActionButton = {
-            if (fullscreenCustomView == null && !uiState.isOmniboxFocused) {
+            if (activeTab.isStartPage && fullscreenCustomView == null && !uiState.isOmniboxFocused) {
                 FloatingActionButton(
                     onClick = onOpenGeminiAssistant,
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -973,6 +998,31 @@ fun BrowserScreen(
                         }
                     }
 
+                    // Expandable AI Screen Trade Pilot HUD docked cleanly ABOVE WebView so chart & PixelCopy stay 100% unobstructed
+                    AnimatedVisibility(
+                        visible = uiState.tradePilot.isPanelExpanded &&
+                            fullscreenCustomView == null &&
+                            !uiState.isOmniboxFocused,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            TradePilotHudCard(
+                                tradePilot = uiState.tradePilot,
+                                accentColor = accentColor,
+                                onScanAndClick = { viewModel.analyzeScreenForTrade(executeClick = true) },
+                                onAnalyzeOnly = { viewModel.analyzeScreenForTrade(executeClick = false) },
+                                onExecuteLastDecision = viewModel::executeLastTradeDecision,
+                                onToggleAutoPilot = viewModel::toggleTradeAutoPilot,
+                                onSelectMinConfidence = viewModel::setTradeMinConfidence,
+                                onDismiss = viewModel::closeTradePilotPanel,
+                            )
+                        }
+                    }
+
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         BrowserWebView(
                             url = activeTab.url,
@@ -1003,6 +1053,34 @@ fun BrowserScreen(
                                 wv
                             },
                         )
+
+                        // Visual click target indicator on WebView (hidden during clean capture)
+                        if (!uiState.tradePilot.isCapturingScreen) {
+                            TradeTapIndicatorOverlay(
+                                normX = uiState.tradePilot.lastTapNormX,
+                                normY = uiState.tradePilot.lastTapNormY,
+                                actionLabel = uiState.tradePilot.lastClickedAction,
+                                onClearIndicator = viewModel::clearLastTapIndicator,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        // Compact Top-Right AI Controls (hidden while expanded or during capture)
+                        if (fullscreenCustomView == null &&
+                            !uiState.isOmniboxFocused &&
+                            !uiState.tradePilot.isPanelExpanded &&
+                            !uiState.tradePilot.isCapturingScreen
+                        ) {
+                            WebOverlayAiControls(
+                                tradePilot = uiState.tradePilot,
+                                accentColor = accentColor,
+                                onToggleTradePilot = viewModel::toggleTradePilotPanel,
+                                onOpenGeminiChat = onOpenGeminiAssistant,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 8.dp, end = 8.dp),
+                            )
+                        }
 
                         // Error / Onion Proxy Recovery Overlay
                         if (activeTab.lastError != null) {
@@ -1090,12 +1168,26 @@ fun BrowserScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    imageVector = if (item.isOnion) Icons.Rounded.Security else Icons.Rounded.History,
-                                    contentDescription = null,
-                                    tint = if (item.isOnion) shieldColors.torAccent else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                val isUrlSuggestion = item.resolvedUrl.startsWith("http://", ignoreCase = true) ||
+                                    item.resolvedUrl.startsWith("https://", ignoreCase = true)
+                                if (isUrlSuggestion) {
+                                    WebsiteLogo(
+                                        url = item.resolvedUrl,
+                                        title = item.query,
+                                        accentColor = if (item.isOnion) shieldColors.torAccent else accentColor,
+                                        size = 28.dp,
+                                        cornerRadius = 7.dp,
+                                        isOnion = item.isOnion,
+                                        allowNetworkFetch = !isTorMode && !item.isOnion,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (item.isOnion) Icons.Rounded.Security else Icons.Rounded.History,
+                                        contentDescription = null,
+                                        tint = if (item.isOnion) shieldColors.torAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = item.query,
@@ -1150,7 +1242,11 @@ fun BrowserScreen(
                 visible = uiState.statusBannerMessage != null,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp, end = 88.dp, bottom = 12.dp),
+                    .padding(
+                        start = 12.dp,
+                        end = if (activeTab.isStartPage) 88.dp else 12.dp,
+                        bottom = 12.dp,
+                    ),
             ) {
                 uiState.statusBannerMessage?.let { message ->
                     Snackbar(
@@ -1164,6 +1260,81 @@ fun BrowserScreen(
                     ) {
                         Text(message, style = MaterialTheme.typography.bodySmall)
                     }
+                }
+            }
+        }
+    }
+
+    popupWebView?.let { activePopup ->
+        Dialog(
+            onDismissRequest = viewModel::dismissPopupWebView,
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            BackHandler(onBack = viewModel::dismissPopupWebView)
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(10.dp)
+                    .testTag("auth_popup_dialog"),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = activePopup.url?.takeIf { it.isNotBlank() } ?: "Account Sign-In",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(
+                            onClick = viewModel::dismissPopupWebView,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("close_auth_popup_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Close sign-in window",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                    AndroidView(
+                        factory = {
+                            (activePopup.parent as? ViewGroup)?.removeView(activePopup)
+                            activePopup
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    )
                 }
             }
         }
@@ -1241,6 +1412,7 @@ fun BrowserScreen(
     uiState.linkMenuTarget?.let { target ->
         LinkActionSheet(
             target = target,
+            isTorMode = isTorMode,
             onInstallToHomeScreenAndMenu = { title, url ->
                 viewModel.installLinkToHomeAndMenu(context, title, url)
             },
@@ -1340,7 +1512,7 @@ private fun ModePill(
             .testTag(testTag),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
@@ -1390,7 +1562,7 @@ private fun ProxyStatusChip(
             .testTag("proxy_status_chip"),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {

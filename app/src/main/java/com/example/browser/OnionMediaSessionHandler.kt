@@ -42,6 +42,7 @@ class OnionMediaSessionHandler(
     private val onSkipNextCommand: () -> Unit,
     private val onSkipPrevCommand: () -> Unit,
     private val onStateChanged: (MediaPlaybackSnapshot) -> Unit = {},
+    private val manageAudioFocus: Boolean = false,
 ) {
     private val _snapshot = MutableStateFlow(MediaPlaybackSnapshot())
     val snapshot: StateFlow<MediaPlaybackSnapshot> = _snapshot.asStateFlow()
@@ -51,6 +52,8 @@ class OnionMediaSessionHandler(
     private var hasAudioFocus: Boolean = false
     private var resumeOnFocusGain: Boolean = false
     private var noisyReceiverRegistered: Boolean = false
+    internal var platformAudioFocusRequests: Int = 0
+        private set
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -277,10 +280,15 @@ class OnionMediaSessionHandler(
     }
 
     private fun requestAudioFocusInternal(): Boolean {
+        if (!manageAudioFocus) {
+            hasAudioFocus = true
+            return true
+        }
         if (hasAudioFocus) return true
         return runCatching {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 ?: return@runCatching true
+            platformAudioFocusRequests++
             val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val req = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setAudioAttributes(
@@ -310,6 +318,7 @@ class OnionMediaSessionHandler(
 
     private fun abandonAudioFocusInternal() {
         hasAudioFocus = false
+        if (!manageAudioFocus) return
         runCatching {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

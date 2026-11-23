@@ -194,6 +194,22 @@ class BrowserLibraryRepository(private val database: OnionShieldDatabase) {
 
     suspend fun updateDownloadStatus(id: Long, status: String) = downloadDao.updateStatus(id, status)
 
+    suspend fun updateDownloadDetails(
+        id: Long,
+        fileName: String,
+        url: String,
+        status: String,
+        systemDownloadId: Long,
+        sizeBytes: Long,
+    ) = downloadDao.updateDetails(
+        id = id,
+        fileName = fileName,
+        url = url,
+        status = status,
+        systemDownloadId = systemDownloadId,
+        sizeBytes = sizeBytes,
+    )
+
     suspend fun deleteDownload(id: Long) = downloadDao.deleteById(id)
 
     suspend fun clearDownloads() = downloadDao.clearAll()

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.repository.AdminServerConfig
 import com.example.data.repository.AdminServerConfigSnapshot
+import com.example.data.repository.AdminSettingsDataSource
 import com.example.data.repository.AdminSettingsRepository
 import com.example.data.repository.MaintenanceLogEntry
 import com.example.data.repository.MaintenanceLogsSnapshot
@@ -44,7 +45,7 @@ sealed interface MaintenanceLogsUiState {
 }
 
 class AdminSettingsViewModel(
-    private val repository: AdminSettingsRepository,
+    private val repository: AdminSettingsDataSource,
     private val currentUserId: String,
 ) : ViewModel() {
 

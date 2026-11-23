@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +40,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -49,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,22 +67,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.browser.DownloadFileHelper
 import com.example.browser.TrackerAndUrlEngine
 import com.example.data.BookmarkEntity
 import com.example.data.DownloadEntity
 import com.example.data.HistoryEntity
 import com.example.data.PendingDownloadRequest
 import com.example.ui.components.DownloadSandboxDialog
+import com.example.ui.components.WebsiteLogo
 import com.example.ui.theme.LocalShieldColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     bookmarks: List<BookmarkEntity>,
     history: List<HistoryEntity>,
+    isTorMode: Boolean = false,
     onOpenUrl: (String) -> Unit,
     onInstallToHomeScreen: (title: String, url: String) -> Unit = { _, _ -> },
     onDeleteBookmark: (Long) -> Unit,
@@ -169,12 +177,16 @@ fun LibraryScreen(
                             Row(
                                 modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    imageVector = if (item.isOnion) Icons.Rounded.Security else Icons.Rounded.Language,
-                                    contentDescription = null,
-                                    tint = accent,
+                                WebsiteLogo(
+                                    url = item.url,
+                                    title = item.title,
+                                    accentColor = accent,
+                                    size = 36.dp,
+                                    cornerRadius = 9.dp,
+                                    isOnion = item.isOnion,
+                                    allowNetworkFetch = !isTorMode && !item.isOnion,
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -250,12 +262,16 @@ fun LibraryScreen(
                             Row(
                                 modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Language,
-                                    contentDescription = null,
-                                    tint = shieldColors.surfaceAccent,
+                                WebsiteLogo(
+                                    url = item.url,
+                                    title = item.title,
+                                    accentColor = shieldColors.surfaceAccent,
+                                    size = 36.dp,
+                                    cornerRadius = 9.dp,
+                                    isOnion = false,
+                                    allowNetworkFetch = !isTorMode,
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -298,14 +314,16 @@ fun LibraryScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DownloadsScreen(
     downloads: List<DownloadEntity>,
     pendingDownload: PendingDownloadRequest? = null,
+    downloadFailureReasons: Map<Long, String> = emptyMap(),
     onConfirmPendingDownload: () -> Unit = {},
     onCancelPendingDownload: () -> Unit = {},
     onRefreshDownloads: () -> Unit = {},
+    onRetryDownload: (DownloadEntity) -> Unit = {},
     onOpenOrInstallDownload: (DownloadEntity) -> Unit = {},
     onOpenSystemDownloads: () -> Unit = {},
     onRequestDirectDownload: (String) -> Unit = {},
@@ -317,12 +335,26 @@ fun DownloadsScreen(
     val clipboard = LocalClipboardManager.current
     val dateFormatter = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
     var showApkUrlDialog by remember { mutableStateOf(false) }
+    val hasActiveDownloads = remember(downloads) { downloads.any { it.status == "DOWNLOADING" } }
+
+    LaunchedEffect(hasActiveDownloads) {
+        while (hasActiveDownloads) {
+            delay(1500L)
+            onRefreshDownloads()
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Downloads & APK Installer") },
+                title = {
+                    Text(
+                        text = "Downloads & APKs",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -390,6 +422,16 @@ fun DownloadsScreen(
                         "CANCELLED" -> shieldColors.warningAmber
                         else -> MaterialTheme.colorScheme.error
                     }
+                    val sizeLabel = remember(dl.sizeBytes) { DownloadFileHelper.formatByteSize(dl.sizeBytes) }
+                    val failureHint = remember(dl.status, dl.url, dl.fileName, downloadFailureReasons[dl.id]) {
+                        DownloadFileHelper.describeFailureReason(dl, downloadFailureReasons[dl.id])
+                    }
+                    val canRetryDirectly = dl.url.startsWith("http://", ignoreCase = true) ||
+                        dl.url.startsWith("https://", ignoreCase = true) ||
+                        dl.url.startsWith("data:", ignoreCase = true)
+                    val canOpenOrInstall = (dl.status == "COMPLETED" || dl.status == "DOWNLOADING") &&
+                        (dl.systemDownloadId >= 0L || dl.url.startsWith("content://", ignoreCase = true))
+
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -411,14 +453,17 @@ fun DownloadsScreen(
                                     contentDescription = null,
                                     tint = statusColor,
                                 )
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
                                         text = dl.fileName,
                                         style = MaterialTheme.typography.titleSmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = statusColor.copy(alpha = 0.16f),
@@ -457,6 +502,13 @@ fun DownloadsScreen(
                                                 )
                                             }
                                         }
+                                        if (sizeLabel.isNotBlank()) {
+                                            Text(
+                                                text = sizeLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                         Text(
                                             text = dateFormatter.format(Date(dl.createdAt)),
                                             style = MaterialTheme.typography.labelSmall,
@@ -473,25 +525,67 @@ fun DownloadsScreen(
                                 }
                             }
 
-                            if (dl.systemDownloadId >= 0L && dl.status != "CANCELLED" && dl.status != "FAILED") {
+                            if (dl.status == "DOWNLOADING") {
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp)),
+                                )
+                            }
+
+                            if (!failureHint.isNullOrBlank()) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = statusColor.copy(alpha = 0.10f),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = failureHint,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = statusColor,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
+
+                            if (canOpenOrInstall || ((dl.status == "FAILED" || dl.status == "CANCELLED") && canRetryDirectly)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                                 ) {
-                                    FilledTonalButton(
-                                        onClick = { onOpenOrInstallDownload(dl) },
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                        modifier = Modifier.testTag("install_or_open_download_${dl.id}"),
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isApk) Icons.Rounded.InstallMobile else Icons.AutoMirrored.Rounded.OpenInNew,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Text(
-                                            text = if (isApk) "  Install APK" else "  Open File",
-                                            style = MaterialTheme.typography.labelLarge,
-                                        )
+                                    if ((dl.status == "FAILED" || dl.status == "CANCELLED") && canRetryDirectly) {
+                                        FilledTonalButton(
+                                            onClick = { onRetryDownload(dl) },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                            modifier = Modifier.testTag("retry_download_${dl.id}"),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Refresh,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Text(
+                                                text = "  Retry",
+                                                style = MaterialTheme.typography.labelLarge,
+                                            )
+                                        }
+                                    }
+                                    if (canOpenOrInstall) {
+                                        FilledTonalButton(
+                                            onClick = { onOpenOrInstallDownload(dl) },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                            modifier = Modifier.testTag("install_or_open_download_${dl.id}"),
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isApk) Icons.Rounded.InstallMobile else Icons.AutoMirrored.Rounded.OpenInNew,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Text(
+                                                text = if (isApk) "  Install APK" else "  Open File",
+                                                style = MaterialTheme.typography.labelLarge,
+                                            )
+                                        }
                                     }
                                 }
                             }

@@ -2,6 +2,8 @@ package com.example.ui.components
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -60,6 +62,7 @@ fun BrowserWebView(
     onUrlUpgraded: ((String) -> Unit)? = null,
 ) {
     var managedWebView by remember(tabKey) { mutableStateOf<WebView?>(null) }
+    var forceSoftwareLayer by remember(tabKey) { mutableStateOf(false) }
     var proxyReady by remember(manageProxyOverride, useTorSocks5Proxy, torProxyScheme, torProxyHost, torProxyPort) {
         mutableStateOf(!manageProxyOverride)
     }
@@ -97,6 +100,7 @@ fun BrowserWebView(
     if (externalWebViewFactory == null) {
         DisposableEffect(tabKey) {
             onDispose {
+                runCatching { CookieManager.getInstance().flush() }
                 managedWebView?.let { wv ->
                     (wv.parent as? ViewGroup)?.removeView(wv)
                     wv.stopLoading()
@@ -125,9 +129,14 @@ fun BrowserWebView(
                     ?: createStandaloneHardenedWebView(
                         context = context,
                         enforceHttps = enforceHttps,
+                        forceSoftwareLayer = forceSoftwareLayer,
+                        onGpuRendererEvicted = { forceSoftwareLayer = true },
                         onUrlUpgraded = onUrlUpgraded,
                     )
                 (webView.parent as? ViewGroup)?.removeView(webView)
+                if (externalWebViewFactory == null && forceSoftwareLayer && webView.layerType != View.LAYER_TYPE_SOFTWARE) {
+                    webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                }
                 webView.onResume()
                 if (externalWebViewFactory == null) {
                     applySecurityWebSettings(
@@ -168,6 +177,8 @@ fun BrowserWebView(
 private fun createStandaloneHardenedWebView(
     context: Context,
     enforceHttps: Boolean,
+    forceSoftwareLayer: Boolean,
+    onGpuRendererEvicted: () -> Unit,
     onUrlUpgraded: ((String) -> Unit)?,
 ): WebView {
     return WebView(context).apply {
@@ -175,6 +186,12 @@ private fun createStandaloneHardenedWebView(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         )
+        if (forceSoftwareLayer) {
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
         webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
                 // Prevent WebRTC / camera / microphone hardware fingerprinting or leaks
@@ -219,6 +236,9 @@ private fun createStandaloneHardenedWebView(
                 view: WebView?,
                 detail: RenderProcessGoneDetail?,
             ): Boolean {
+                if (detail?.didCrash() == false) {
+                    onGpuRendererEvicted()
+                }
                 if (view != null) {
                     (view.parent as? ViewGroup)?.removeView(view)
                     view.destroy()

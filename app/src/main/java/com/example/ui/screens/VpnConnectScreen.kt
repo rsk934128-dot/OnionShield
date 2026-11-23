@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import com.example.browser.TrackerAndUrlEngine
 import com.example.data.VpnServerProfile
 import com.example.data.VpnTunnelStatus
+import com.example.ui.components.WebsiteLogo
 import com.example.ui.theme.LocalShieldColors
 
 private data class FreeWebLinkDestination(
@@ -556,20 +557,13 @@ fun VpnConnectScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = shieldColors.surfaceAccent.copy(alpha = 0.14f),
-                                    modifier = Modifier.size(38.dp),
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Lock,
-                                            contentDescription = null,
-                                            tint = shieldColors.surfaceAccent,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
+                                WebsiteLogo(
+                                    url = link.url,
+                                    title = link.title,
+                                    accentColor = shieldColors.surfaceAccent,
+                                    size = 38.dp,
+                                    cornerRadius = 10.dp,
+                                )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,

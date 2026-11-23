@@ -24,6 +24,7 @@ object HomeAppShortcutHelper {
         title: String,
         url: String,
         isOnion: Boolean,
+        fetchedLogoBitmap: Bitmap? = null,
     ): Pair<Boolean, String> {
         if (url.isBlank() || url == ABOUT_START_URL) {
             return false to "Open a website first to install it as a Home App."
@@ -43,7 +44,12 @@ object HomeAppShortcutHelper {
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
-        val iconBitmap = createMonogramIconBitmap(cleanTitle, isOnion)
+        val validLogo = fetchedLogoBitmap?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }
+        val iconBitmap = if (validLogo != null) {
+            createCompositeLogoBitmap(validLogo, isOnion)
+        } else {
+            createMonogramIconBitmap(cleanTitle, isOnion)
+        }
         val shortcutId = "onionshield_pwa_${url.hashCode()}"
         val shortcut = ShortcutInfoCompat.Builder(context, shortcutId)
             .setShortLabel(cleanTitle.take(18))
@@ -75,6 +81,31 @@ object HomeAppShortcutHelper {
             if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString()
         }
         return primary.ifBlank { "Web App" }
+    }
+
+    private fun createCompositeLogoBitmap(logo: Bitmap, isOnion: Boolean): Bitmap {
+        val size = 192
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#F8FAFC")
+            style = Paint.Style.FILL
+        }
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor(if (isOnion) "#B66CFF" else "#00E5D1")
+            style = Paint.Style.STROKE
+            strokeWidth = 10f
+        }
+        val rect = RectF(10f, 10f, size - 10f, size - 10f)
+        canvas.drawRoundRect(rect, 44f, 44f, bgPaint)
+
+        val inset = 34f
+        val destRect = RectF(inset, inset, size - inset, size - inset)
+        val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(logo, null, destRect, drawPaint)
+        canvas.drawRoundRect(rect, 44f, 44f, borderPaint)
+        return bitmap
     }
 
     private fun createMonogramIconBitmap(title: String, isOnion: Boolean): Bitmap {

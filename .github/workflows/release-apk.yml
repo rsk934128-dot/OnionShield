@@ -1,0 +1,142 @@
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release tag name (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+        type: string
+      create_github_release:
+        description: 'Publish APK and AAB to GitHub Releases'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Test, Sign & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Ensure debug keystore exists for unit tests
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storetype PKCS12 \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -alias androiddebugkey \
+                -storepass android \
+                -keypass android \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+      - name: Run local unit & Robolectric tests
+        run: gradle :app:testDebugUnitTest -PskipEmulatorTests=true --no-daemon
+
+      - name: Resolve release tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version_tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Configure release signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$SECRET_STORE_PASSWORD" ] && [ -n "$SECRET_KEY_PASSWORD" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=production" >> "$GITHUB_ENV"
+          else
+            echo "Production signing secrets not configured; generating temporary CI upload keystore."
+            keytool -genkeypair -v \
+              -keystore "$RUNNER_TEMP/temp-upload-key.jks" \
+              -storetype PKCS12 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias upload \
+              -storepass "onionshield-ci-temp" \
+              -keypass "onionshield-ci-temp" \
+              -dname "CN=OnionShield CI, OU=Mobile, O=OnionShield, L=Unknown, ST=Unknown, C=US"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/temp-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=onionshield-ci-temp" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=onionshield-ci-temp" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=ephemeral" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build signed Release APK & AAB
+        run: gradle :app:assembleRelease :app:bundleRelease --no-daemon
+
+      - name: Package release artifacts & SHA-256 checksum
+        run: |
+          mkdir -p dist
+          APK_OUT="dist/OnionShield-${RELEASE_TAG}-release.apk"
+          AAB_OUT="dist/OnionShield-${RELEASE_TAG}-release.aab"
+          cp app/build/outputs/apk/release/app-release.apk "$APK_OUT"
+          cp app/build/outputs/bundle/release/app-release.aab "$AAB_OUT"
+          (cd dist && sha256sum "OnionShield-${RELEASE_TAG}-release.apk" > "OnionShield-${RELEASE_TAG}-release.apk.sha256")
+          ls -lh dist
+
+      - name: Upload Release APK & AAB workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnionShield-${{ env.RELEASE_TAG }}-release
+          path: dist/*
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.create_github_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: OnionShield ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          body: |
+            ### OnionShield Android Release (`${{ env.RELEASE_TAG }}`)
+            - **APK**: `OnionShield-${{ env.RELEASE_TAG }}-release.apk`
+            - **AAB**: `OnionShield-${{ env.RELEASE_TAG }}-release.aab`
+            - **SHA-256**: Included in `OnionShield-${{ env.RELEASE_TAG }}-release.apk.sha256`
+            - **Signing Mode**: `${{ env.SIGNING_MODE }}` (`production` uses `RELEASE_KEYSTORE_BASE64`; `ephemeral` uses a per-build CI key—configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD` for seamless in-place updates).
+          files: |
+            dist/OnionShield-${{ env.RELEASE_TAG }}-release.apk
+            dist/OnionShield-${{ env.RELEASE_TAG }}-release.aab
+            dist/OnionShield-${{ env.RELEASE_TAG }}-release.apk.sha256

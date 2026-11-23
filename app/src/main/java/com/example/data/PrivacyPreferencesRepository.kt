@@ -62,6 +62,8 @@ class PrivacyPreferencesRepository(private val context: Context) {
         val LAST_MEDIA_URL = stringPreferencesKey("last_media_url")
         val LAST_MEDIA_POSITION_MS = longPreferencesKey("last_media_position_ms")
         val LAST_MEDIA_DURATION_MS = longPreferencesKey("last_media_duration_ms")
+        val SURFACE_DEVICE_SEED = stringPreferencesKey("surface_device_seed")
+        val AUTHENTICATED_SESSION_HOSTS = stringSetPreferencesKey("authenticated_session_hosts")
     }
 
     val securityConfig: Flow<SecurityConfig> = context.privacyDataStore.data.map { prefs ->
@@ -136,6 +138,14 @@ class PrivacyPreferencesRepository(private val context: Context) {
             positionMs = prefs[Keys.LAST_MEDIA_POSITION_MS] ?: 0L,
             durationMs = prefs[Keys.LAST_MEDIA_DURATION_MS] ?: 0L,
         )
+    }
+
+    val surfaceDeviceSeed: Flow<String?> = context.privacyDataStore.data.map { prefs ->
+        prefs[Keys.SURFACE_DEVICE_SEED]?.takeIf { it.isNotBlank() }
+    }
+
+    val authenticatedSessionHosts: Flow<Set<String>> = context.privacyDataStore.data.map { prefs ->
+        prefs[Keys.AUTHENTICATED_SESSION_HOSTS] ?: emptySet()
     }
 
     suspend fun setBrowserMode(mode: BrowserMode) {
@@ -373,6 +383,43 @@ class PrivacyPreferencesRepository(private val context: Context) {
             it.remove(Keys.LAST_MEDIA_URL)
             it.remove(Keys.LAST_MEDIA_POSITION_MS)
             it.remove(Keys.LAST_MEDIA_DURATION_MS)
+        }
+    }
+
+    suspend fun ensureSurfaceDeviceSeed(candidateSeed: String): String {
+        var resolved = candidateSeed
+        context.privacyDataStore.edit { prefs ->
+            val existing = prefs[Keys.SURFACE_DEVICE_SEED]
+            if (!existing.isNullOrBlank()) {
+                resolved = existing
+            } else {
+                prefs[Keys.SURFACE_DEVICE_SEED] = candidateSeed
+                resolved = candidateSeed
+            }
+        }
+        return resolved
+    }
+
+    suspend fun rotateSurfaceDeviceSeed(newSeed: String) {
+        context.privacyDataStore.edit { prefs ->
+            prefs[Keys.SURFACE_DEVICE_SEED] = newSeed
+        }
+    }
+
+    suspend fun addAuthenticatedSessionHost(host: String) {
+        val clean = host.trim().lowercase().removePrefix("www.")
+        if (clean.isBlank()) return
+        context.privacyDataStore.edit { prefs ->
+            val current = prefs[Keys.AUTHENTICATED_SESSION_HOSTS] ?: emptySet()
+            if (!current.contains(clean)) {
+                prefs[Keys.AUTHENTICATED_SESSION_HOSTS] = current + clean
+            }
+        }
+    }
+
+    suspend fun clearAuthenticatedSessionHosts() {
+        context.privacyDataStore.edit { prefs ->
+            prefs.remove(Keys.AUTHENTICATED_SESSION_HOSTS)
         }
     }
 }
