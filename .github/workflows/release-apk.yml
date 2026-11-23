@@ -35,8 +35,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_DIR/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          fi
+          mkdir -p "$SDK_DIR/licenses"
+          if [ -n "$SDKMANAGER" ] && [ -x "$SDKMANAGER" ]; then
+            (yes || true) | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          fi
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -62,13 +73,28 @@ jobs:
             fi
           fi
 
+      - name: Pre-cache Robolectric SDK artifact from Google mirror
+        run: |
+          M2_DIR="$HOME/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7"
+          JAR_NAME="android-all-instrumented-16-robolectric-13921718-i7.jar"
+          POM_NAME="android-all-instrumented-16-robolectric-13921718-i7.pom"
+          BASE_URL="https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7"
+          mkdir -p "$M2_DIR"
+          if [ ! -f "$M2_DIR/$JAR_NAME" ]; then
+            curl -fsSL --retry 2 --connect-timeout 15 "$BASE_URL/$JAR_NAME" -o "$M2_DIR/$JAR_NAME" || rm -f "$M2_DIR/$JAR_NAME"
+          fi
+          if [ ! -f "$M2_DIR/$POM_NAME" ]; then
+            curl -fsSL --retry 2 --connect-timeout 15 "$BASE_URL/$POM_NAME" -o "$M2_DIR/$POM_NAME" || rm -f "$M2_DIR/$POM_NAME"
+          fi
+
       - name: Run local unit & Robolectric tests
         run: gradle :app:testDebugUnitTest -PskipEmulatorTests=true --no-daemon
 
       - name: Resolve release tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.version_tag }}"
+            TAG="$(echo "${{ inputs.version_tag }}" | xargs)"
+            TAG="${TAG:-v1.0.0}"
           else
             TAG="${GITHUB_REF_NAME}"
           fi
