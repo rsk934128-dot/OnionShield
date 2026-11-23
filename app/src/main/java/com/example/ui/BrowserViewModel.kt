@@ -72,6 +72,8 @@ import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.SessionMonitorFirestoreRepository
 import com.example.security.VaultCryptoManager
 import com.example.security.ensureFirebaseAndAppCheckInitialized
+import com.example.security.formatAppCheckErrorMessage
+import com.example.security.isAppCheckTokenError
 import com.example.ui.screens.AppLockPolicy
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -2357,9 +2359,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         } catch (e: Exception) {
             val rawMessage = e.localizedMessage?.trim().orEmpty()
             val isMissingFirebase = rawMessage.contains("Default FirebaseApp is not initialized", ignoreCase = true)
+            val isAppCheckError = isAppCheckTokenError(rawMessage)
             val friendlyMsg = when {
                 isMissingFirebase ->
                     "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio."
+                isAppCheckError ->
+                    formatAppCheckErrorMessage(rawMessage)
                 GeminiShieldRepository.isTransientHighDemandError(e) ->
                     "Gemini Vision is briefly busy right now. Tap Analyze again."
                 rawMessage.isNotBlank() -> rawMessage
@@ -2370,7 +2375,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     tradePilot = state.tradePilot.copy(
                         isAnalyzing = false,
                         isCapturingScreen = false,
-                        isAutoPilotRunning = if (isMissingFirebase) false else state.tradePilot.isAutoPilotRunning,
+                        isAutoPilotRunning = if (isMissingFirebase || isAppCheckError) false else state.tradePilot.isAutoPilotRunning,
                         lastError = friendlyMsg,
                     ),
                 )

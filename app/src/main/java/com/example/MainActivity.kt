@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.browser.HomeAppShortcutHelper
 import com.example.browser.TrackerAndUrlEngine
 import com.example.data.BrowserMode
+import com.example.data.repository.FirestoreClientProvider
 import com.example.security.configureAppCheck
 import com.example.ui.BrowserViewModel
 import com.example.ui.Routes
@@ -51,6 +52,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         // Configure Firebase App Check before ViewModels, Compose UI, or any Firebase operations.
         configureAppCheck(this, intent)
+        // Warm up Firestore enterprise client with offline persistence after App Check is installed.
+        runCatching { FirestoreClientProvider.getInstance(this) }
         enableEdgeToEdge()
         sharedBrowserViewModel = ViewModelProvider(this)[BrowserViewModel::class.java]
         pendingExternalIntent.value = extractExternalIntent(intent)

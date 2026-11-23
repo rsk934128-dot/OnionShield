@@ -351,4 +351,23 @@ class ExampleUnitTest {
         assertTrue(exposedMetrics.averageSessionEntropyBits < 10.0)
         assertEquals("Low Entropy", exposedMetrics.entropyTierLabel)
     }
+
+    @Test
+    fun appCheck_detectsAndFormatsDebugVsReleaseGuidance() {
+        assertTrue(com.example.security.isAppCheckTokenError("Firebase App Check token is invalid."))
+        assertTrue(com.example.security.isAppCheckTokenError("HTTP 403 AppCheck attestation rejected"))
+        assertFalse(com.example.security.isAppCheckTokenError("Network timeout"))
+
+        val debugMsg = com.example.security.formatAppCheckErrorMessage(
+            rawMessage = "Firebase App Check token is invalid.",
+            isDebugBuild = true,
+        )
+        assertTrue(debugMsg.contains("Release Android APK"))
+
+        val releaseMsg = com.example.security.formatAppCheckErrorMessage(
+            rawMessage = "Firebase App Check token is invalid.",
+            isDebugBuild = false,
+        )
+        assertTrue(releaseMsg.contains("Google Play Services"))
+    }
 }

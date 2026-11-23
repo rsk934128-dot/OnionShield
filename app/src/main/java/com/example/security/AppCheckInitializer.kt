@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.BuildConfig
+import com.example.R
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
@@ -45,24 +46,30 @@ fun configureAppCheck(context: Context, intent: Intent?) {
             )
             Log.d(TAG, "DebugAppCheckProviderFactory installed.")
         } else {
-            val resId = context.resources.getIdentifier(RECAPTCHA_SITE_KEY_RES, "string", context.packageName)
-            if (resId != 0) {
-                val siteKey = context.getString(resId)
-                if (siteKey.isNotBlank()) {
-                    FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-                        RecaptchaAppCheckProviderFactory.getInstance(siteKey),
-                    )
-                    Log.d(TAG, "RecaptchaAppCheckProviderFactory installed.")
-                } else {
-                    Log.e(TAG, "recaptcha_site_key resource string is blank.")
-                }
+            val siteKey = resolveRecaptchaSiteKey(context)
+            if (!siteKey.isNullOrBlank()) {
+                FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                    RecaptchaAppCheckProviderFactory.getInstance(siteKey),
+                )
+                Log.d(TAG, "RecaptchaAppCheckProviderFactory installed.")
             } else {
-                Log.e(TAG, "recaptcha_site_key string resource not found in package.")
+                Log.e(TAG, "recaptcha_site_key string resource not found or blank in package.")
             }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
     }
+}
+
+private fun resolveRecaptchaSiteKey(context: Context): String? {
+    val resId = context.resources.getIdentifier(RECAPTCHA_SITE_KEY_RES, "string", context.packageName)
+    if (resId != 0) {
+        val value = runCatching { context.getString(resId) }.getOrNull()
+        if (!value.isNullOrBlank()) return value
+    }
+    return runCatching { context.getString(R.string.recaptcha_site_key) }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
 }
 
 fun isDefaultFirebaseAppInitialized(context: Context): Boolean =
@@ -75,4 +82,23 @@ fun ensureFirebaseAndAppCheckInitialized(context: Context, intent: Intent? = nul
         configureAppCheck(context, intent)
     }
     return isDefaultFirebaseAppInitialized(context)
+}
+
+fun isAppCheckTokenError(rawMessage: String): Boolean {
+    val lower = rawMessage.lowercase()
+    return lower.contains("app check") ||
+        lower.contains("appcheck") ||
+        lower.contains("attestation")
+}
+
+fun formatAppCheckErrorMessage(
+    rawMessage: String,
+    isDebugBuild: Boolean = BuildConfig.DEBUG,
+): String {
+    val base = rawMessage.trim().ifBlank { "Firebase App Check token is invalid." }
+    return if (isDebugBuild) {
+        "$base Debug APKs require AI Studio Preview or a registered Firebase App Check debug token. Install the signed Release APK from GitHub 'Release Android APK' for personal phone use."
+    } else {
+        "$base Ensure Google Play Services & internet are reachable (disable VPN/Tor briefly if blocked) and rebuild the Release APK with synced firebase_applet_config.xml."
+    }
 }
