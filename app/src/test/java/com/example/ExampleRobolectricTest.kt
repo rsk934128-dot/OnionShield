@@ -811,6 +811,13 @@ class ExampleRobolectricTest {
         // Restore default enabled state
         repo.setBiometricAppLockEnabled(true)
         assertTrue(repo.securityConfig.first().biometricAppLockEnabled)
+
+        // Floating AI overlay buttons default enabled and persist OFF/ON toggle
+        assertTrue(repo.securityConfig.first().showAiOverlayButtons)
+        repo.setShowAiOverlayButtons(false)
+        assertFalse(repo.securityConfig.first().showAiOverlayButtons)
+        repo.setShowAiOverlayButtons(true)
+        assertTrue(repo.securityConfig.first().showAiOverlayButtons)
     }
 
     @Test

@@ -71,6 +71,7 @@ import com.example.data.repository.EncryptedSearchHistoryRepository
 import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.SessionMonitorFirestoreRepository
 import com.example.security.VaultCryptoManager
+import com.example.security.ensureFirebaseAndAppCheckInitialized
 import com.example.ui.screens.AppLockPolicy
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -2025,6 +2026,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setAiOverlayButtonsVisible(enabled: Boolean) = viewModelScope.launch {
+        prefsRepo.setShowAiOverlayButtons(enabled)
+        _uiState.update { state ->
+            state.copy(
+                securityConfig = state.securityConfig.copy(showAiOverlayButtons = enabled),
+                tradePilot = if (!enabled) {
+                    state.tradePilot.copy(isPanelExpanded = false)
+                } else {
+                    state.tradePilot
+                },
+                statusBannerMessage = if (enabled) {
+                    "Floating AI buttons turned ON."
+                } else {
+                    "Floating AI buttons turned OFF. Re-enable anytime from Menu (⋮) or Settings."
+                },
+            )
+        }
+    }
+
+    fun toggleAiOverlayButtons() {
+        val next = !_uiState.value.securityConfig.showAiOverlayButtons
+        setAiOverlayButtonsVisible(next)
+    }
+
     fun setTradeMinConfidence(percent: Int) {
         val clamped = percent.coerceIn(50, 95)
         _uiState.update { state ->
@@ -2178,6 +2203,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
+        val wasPanelCollapsed = !_uiState.value.tradePilot.isPanelExpanded
         _uiState.update { state ->
             state.copy(
                 tradePilot = state.tradePilot.copy(
@@ -2189,10 +2215,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             )
         }
 
+        if (!ensureFirebaseAndAppCheckInitialized(getApplication())) {
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(
+                        isAnalyzing = false,
+                        isAutoPilotRunning = false,
+                        lastError = "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio.",
+                    ),
+                )
+            }
+            return
+        }
+
         var capturedBitmap: android.graphics.Bitmap? = null
         try {
-            // Brief frame delay so any floating overlay inside WebView bounds hides before PixelCopy.
-            delay(60L)
+            // Wait for HUD AnimatedVisibility layout shift (when expanding) so WebView rect & hardware surface settle cleanly.
+            delay(if (wasPanelCollapsed) 380L else 80L)
             val (bitmap, detectedButtons) = suspendCancellableCoroutine { cont ->
                 webViewPool.captureScreenAndTradeControls(activeTab.id) { bmp, buttons ->
                     if (cont.isActive) {
@@ -2219,13 +2258,49 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 return
             }
 
+            val bitmapTelemetry = TradePilotHelper.analyzeBitmapChart(bitmap)
             val controlsSummary = TradePilotHelper.formatControlsSummary(detectedButtons)
-            val decision = withContext(Dispatchers.IO) {
+            val rawDecision = withContext(Dispatchers.IO) {
                 geminiShieldRepository.analyzeScreenForTradeSignal(
                     screenshot = bitmap,
                     pageUrl = activeTab.url,
                     domControlsSummary = controlsSummary,
+                    visualTelemetrySummary = bitmapTelemetry.toPromptSummary(),
                 )
+            }
+
+            val claimedBlank = rawDecision.reasoning.contains("blank", ignoreCase = true) ||
+                rawDecision.reasoning.contains("failed to render", ignoreCase = true) ||
+                rawDecision.reasoning.contains("not visible", ignoreCase = true)
+            val decision = if (rawDecision.decision == TradeDecision.HOLD &&
+                bitmapTelemetry.hasChartDetail &&
+                bitmapTelemetry.suggestedDecision != TradeDecision.HOLD &&
+                (claimedBlank || rawDecision.confidence <= 25)
+            ) {
+                val fallbackX = if (rawDecision.normalizedX == 0.5f) {
+                    if (bitmapTelemetry.suggestedDecision == TradeDecision.BUY) 0.72f else 0.28f
+                } else {
+                    rawDecision.normalizedX
+                }
+                val fallbackY = if (rawDecision.normalizedY == 0.5f) 0.88f else rawDecision.normalizedY
+                rawDecision.copy(
+                    decision = bitmapTelemetry.suggestedDecision,
+                    confidence = maxOf(
+                        bitmapTelemetry.suggestedConfidence,
+                        _uiState.value.tradePilot.minConfidencePercent,
+                    ),
+                    marketBias = if (bitmapTelemetry.suggestedDecision == TradeDecision.BUY) {
+                        "Bullish Momentum"
+                    } else {
+                        "Bearish Momentum"
+                    },
+                    reasoning = "Live chart pixels verified (${bitmapTelemetry.slopeDirection} slope; recent green=${bitmapTelemetry.recentGreenPixels}, red=${bitmapTelemetry.recentRedPixels}) — executing ${bitmapTelemetry.suggestedDecision.name} signal.",
+                    targetLabel = bitmapTelemetry.suggestedDecision.name,
+                    normalizedX = fallbackX,
+                    normalizedY = fallbackY,
+                )
+            } else {
+                rawDecision
             }
 
             val resolvedTarget = TradePilotHelper.resolveClickTarget(
@@ -2280,16 +2355,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val friendlyMsg = if (GeminiShieldRepository.isTransientHighDemandError(e)) {
-                "Gemini Vision is briefly busy right now. Tap Analyze again."
-            } else {
-                e.localizedMessage?.takeIf { it.isNotBlank() } ?: "Screen analysis failed."
+            val rawMessage = e.localizedMessage?.trim().orEmpty()
+            val isMissingFirebase = rawMessage.contains("Default FirebaseApp is not initialized", ignoreCase = true)
+            val friendlyMsg = when {
+                isMissingFirebase ->
+                    "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio."
+                GeminiShieldRepository.isTransientHighDemandError(e) ->
+                    "Gemini Vision is briefly busy right now. Tap Analyze again."
+                rawMessage.isNotBlank() -> rawMessage
+                else -> "Screen analysis failed."
             }
             _uiState.update { state ->
                 state.copy(
                     tradePilot = state.tradePilot.copy(
                         isAnalyzing = false,
                         isCapturingScreen = false,
+                        isAutoPilotRunning = if (isMissingFirebase) false else state.tradePilot.isAutoPilotRunning,
                         lastError = friendlyMsg,
                     ),
                 )

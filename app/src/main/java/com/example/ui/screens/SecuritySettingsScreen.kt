@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CodeOff
 import androidx.compose.material.icons.rounded.DarkMode
@@ -68,9 +69,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
 import com.example.browser.TorProxyController
 import com.example.data.SecurityConfig
 import com.example.ui.BrowserUiState
@@ -343,6 +346,14 @@ fun SecuritySettingsScreen(
                             checked = config.backgroundMediaPlaybackEnabled,
                             switchTestTag = "setting_switch_background_media",
                             onCheckedChange = viewModel::setBackgroundMediaPlayback,
+                        )
+                        SettingsSwitchItem(
+                            title = stringResource(R.string.ai_overlay_settings_title),
+                            subtitle = stringResource(R.string.ai_overlay_settings_subtitle),
+                            icon = Icons.Rounded.AutoAwesome,
+                            checked = config.showAiOverlayButtons,
+                            switchTestTag = "setting_switch_ai_overlay",
+                            onCheckedChange = viewModel::setAiOverlayButtonsVisible,
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         SettingsSwitchItem(

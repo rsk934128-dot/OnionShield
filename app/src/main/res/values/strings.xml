@@ -85,4 +85,18 @@
     <string name="trade_pilot_disclaimer">AI chart analysis is advisory only; verify REAL vs DEMO mode before trading.</string>
     <string name="cd_open_trade_pilot">Toggle AI Screen Trade Pilot</string>
     <string name="cd_close_trade_pilot">Minimize AI Screen Trade Pilot</string>
+    <string name="cd_hide_ai_overlay">Hide floating AI buttons from display</string>
+    <string name="ai_overlay_toggle_title">Floating AI Overlay</string>
+    <string name="ai_overlay_status_on">Visible on display (Tap to turn OFF)</string>
+    <string name="ai_overlay_status_off">Hidden from display (Tap to turn ON)</string>
+    <string name="ai_overlay_settings_title">Show Floating AI Buttons</string>
+    <string name="ai_overlay_settings_subtitle">Display AI Trade &amp; Gemini quick buttons on screen</string>
+    <string name="privacy_dashboard_title">Privacy Dashboard</string>
+    <string name="cd_privacy_dashboard_icon">Privacy Dashboard security shield</string>
+    <string name="privacy_dashboard_trackers_label">Trackers</string>
+    <string name="privacy_dashboard_entropy_label">Avg Entropy</string>
+    <string name="privacy_dashboard_fingerprint_label">Fingerprint</string>
+    <string name="privacy_dashboard_entropy_gauge_label">Average Session Entropy</string>
+    <string name="privacy_dashboard_rotate_seed">Rotate Seed</string>
+    <string name="privacy_dashboard_manage_shields">Shield Settings</string>
 </resources>

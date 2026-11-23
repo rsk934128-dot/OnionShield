@@ -7,14 +7,17 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.os.SystemClock
+import android.util.Base64
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.PixelCopy
@@ -313,18 +316,48 @@ class WebViewPool(
             val targetW = (viewW * scale).toInt().coerceAtLeast(1)
             val targetH = (viewH * scale).toInt().coerceAtLeast(1)
 
-            fun captureBitmapAfterDomScan(detectedButtons: List<DetectedTradeButton>) {
+            fun finishWithFallbackSnapshot(detectedButtons: List<DetectedTradeButton>) {
+                runCatching {
+                    wv.evaluateJavascript(TradePilotHelper.CANVAS_CHART_CAPTURE_SCRIPT) { rawCharts ->
+                        val charts = TradePilotHelper.parseCanvasSnapshotsJson(rawCharts)
+                        onResult(
+                            renderWebViewCanvasSnapshot(wv, targetW, targetH, scale, charts),
+                            detectedButtons,
+                        )
+                    }
+                }.onFailure {
+                    onResult(
+                        renderWebViewCanvasSnapshot(wv, targetW, targetH, scale, emptyList()),
+                        detectedButtons,
+                    )
+                }
+            }
+
+            fun attemptPixelCopy(
+                detectedButtons: List<DetectedTradeButton>,
+                allowRetry: Boolean,
+            ) {
                 val window = findHostWindow(wv.context)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && window != null && wv.isAttachedToWindow) {
+                    val decorW = window.decorView.width
+                    val decorH = window.decorView.height
                     val location = IntArray(2)
                     wv.getLocationInWindow(location)
-                    val srcRect = Rect(
-                        location[0],
-                        location[1],
-                        location[0] + viewW,
-                        location[1] + viewH,
-                    )
-                    val destBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                    val left = location[0].coerceAtLeast(0)
+                    val top = location[1].coerceAtLeast(0)
+                    val right = (location[0] + wv.width).coerceAtMost(if (decorW > 0) decorW else location[0] + wv.width)
+                    val bottom = (location[1] + wv.height).coerceAtMost(if (decorH > 0) decorH else location[1] + wv.height)
+                    val clampedW = (right - left)
+                    val clampedH = (bottom - top)
+                    if (clampedW <= 16 || clampedH <= 16) {
+                        finishWithFallbackSnapshot(detectedButtons)
+                        return
+                    }
+                    val srcRect = Rect(left, top, right, bottom)
+                    val copyScale = (maxDimensionPx.toFloat() / maxOf(clampedW, clampedH).toFloat()).coerceAtMost(1f)
+                    val copyW = (clampedW * copyScale).toInt().coerceAtLeast(1)
+                    val copyH = (clampedH * copyScale).toInt().coerceAtLeast(1)
+                    val destBitmap = Bitmap.createBitmap(copyW, copyH, Bitmap.Config.ARGB_8888)
                     val pixelCopyAttempted = runCatching {
                         PixelCopy.request(
                             window,
@@ -332,10 +365,26 @@ class WebViewPool(
                             destBitmap,
                             { copyResult ->
                                 if (copyResult == PixelCopy.SUCCESS) {
-                                    onResult(destBitmap, detectedButtons)
+                                    val telemetry = TradePilotHelper.analyzeBitmapChart(destBitmap)
+                                    if (!telemetry.hasChartDetail && allowRetry) {
+                                        runCatching { destBitmap.recycle() }
+                                        mainHandler.postDelayed(
+                                            { attemptPixelCopy(detectedButtons, allowRetry = false) },
+                                            140L,
+                                        )
+                                    } else {
+                                        onResult(destBitmap, detectedButtons)
+                                    }
                                 } else {
                                     runCatching { destBitmap.recycle() }
-                                    onResult(renderWebViewCanvasSnapshot(wv, targetW, targetH, scale), detectedButtons)
+                                    if (allowRetry) {
+                                        mainHandler.postDelayed(
+                                            { attemptPixelCopy(detectedButtons, allowRetry = false) },
+                                            120L,
+                                        )
+                                    } else {
+                                        finishWithFallbackSnapshot(detectedButtons)
+                                    }
                                 }
                             },
                             mainHandler,
@@ -343,20 +392,20 @@ class WebViewPool(
                     }.isSuccess
                     if (!pixelCopyAttempted) {
                         runCatching { destBitmap.recycle() }
-                        onResult(renderWebViewCanvasSnapshot(wv, targetW, targetH, scale), detectedButtons)
+                        finishWithFallbackSnapshot(detectedButtons)
                     }
                 } else {
-                    onResult(renderWebViewCanvasSnapshot(wv, targetW, targetH, scale), detectedButtons)
+                    finishWithFallbackSnapshot(detectedButtons)
                 }
             }
 
             runCatching {
                 wv.evaluateJavascript(TradePilotHelper.TRADE_DOM_SCAN_SCRIPT) { rawJson ->
                     val buttons = TradePilotHelper.parseDetectedButtonsJson(rawJson)
-                    captureBitmapAfterDomScan(buttons)
+                    attemptPixelCopy(buttons, allowRetry = true)
                 }
             }.onFailure {
-                captureBitmapAfterDomScan(emptyList())
+                attemptPixelCopy(emptyList(), allowRetry = true)
             }
         }
     }
@@ -405,12 +454,36 @@ class WebViewPool(
         targetW: Int,
         targetH: Int,
         scale: Float,
+        canvasCharts: List<CanvasChartSnapshot> = emptyList(),
     ): Bitmap? = runCatching {
         val bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        canvas.save()
         canvas.scale(scale, scale)
         canvas.translate(-wv.scrollX.toFloat(), -wv.scrollY.toFloat())
         wv.draw(canvas)
+        canvas.restore()
+
+        // Composite any extracted HTML5 <canvas> snapshots on top in case software draw omitted GPU canvas
+        canvasCharts.forEach { chart ->
+            val dataUrl = chart.dataUrl ?: return@forEach
+            val base64Part = dataUrl.substringAfter("base64,", "")
+            if (base64Part.isBlank()) return@forEach
+            runCatching {
+                val bytes = Base64.decode(base64Part, Base64.DEFAULT)
+                val chartBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (chartBmp != null) {
+                    val dst = RectF(
+                        chart.leftRatio * targetW,
+                        chart.topRatio * targetH,
+                        chart.rightRatio * targetW,
+                        chart.bottomRatio * targetH,
+                    )
+                    canvas.drawBitmap(chartBmp, null, dst, null)
+                    chartBmp.recycle()
+                }
+            }
+        }
         bitmap
     }.getOrNull()
 

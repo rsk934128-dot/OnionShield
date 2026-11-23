@@ -133,6 +133,7 @@ fun StartPageContent(
     torProxyState: TorProxyState,
     totalTrackersBlocked: Int,
     totalScriptsBlocked: Int,
+    tabs: List<BrowserTab> = listOf(tab),
     pinnedApps: List<PinnedAppEntity> = emptyList(),
     onNavigateUrl: (String) -> Unit,
     onInstallHomeApp: (title: String, url: String) -> Unit = { _, _ -> },
@@ -143,6 +144,7 @@ fun StartPageContent(
     onToggleFingerprint: (Boolean) -> Unit,
     onToggleAdBlocker: (Boolean) -> Unit = {},
     onTogglePopupBlocker: (Boolean) -> Unit = {},
+    onRotateFingerprintSeed: () -> Unit = {},
     onTestTorSocket: () -> Unit,
     onOpenSecuritySettings: () -> Unit,
     vpnStatus: VpnTunnelStatus = VpnTunnelStatus.Disconnected,
@@ -178,125 +180,17 @@ fun StartPageContent(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(start = 14.dp, top = 4.dp, end = 14.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Hero Banner Card
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 640.dp),
-                shape = MaterialTheme.shapes.large,
-                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 104.dp),
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_privacy_banner_1794756388393),
-                        contentDescription = "OnionShield encryption backdrop",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
-                                        MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                                        Color.Transparent,
-                                    ),
-                                ),
-                            ),
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = accentColor.copy(alpha = 0.18f),
-                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f)),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(accentColor),
-                                    )
-                                    Text(
-                                        text = if (isTor) "TOR / ONION ROUTING" else "SURFACE WEB HARDENED",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = accentColor,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-                            ) {
-                                Text(
-                                    text = "SEED #${tab.fingerprintSeed} • ${tab.userAgentLabel}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                )
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "OnionShield",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                text = if (isTor) {
-                                    "Traffic routed via ${config.torEndpoint}"
-                                } else {
-                                    "HTTPS Everywhere, WebRTC Guard & Tracker Shield active"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Home Apps & PWAs Launcher Grid (Promoted to top area for immediate access)
+        // Home Apps & PWAs Launcher Grid (Pinned at the very top for immediate access)
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 640.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -467,6 +361,142 @@ fun StartPageContent(
                             repeat(4 - rowItems.size) {
                                 Spacer(modifier = Modifier.weight(1f))
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Featured Privacy Dashboard Card
+        item {
+            val isVpnConnected = vpnStatus is VpnTunnelStatus.Connected
+            val dashboardMetrics = remember(
+                tabs,
+                tab,
+                config,
+                totalTrackersBlocked,
+                totalScriptsBlocked,
+                isVpnConnected,
+            ) {
+                PrivacyDashboardCalculator.computeMetrics(
+                    tabs = tabs,
+                    activeTab = tab,
+                    config = config,
+                    totalTrackersBlocked = totalTrackersBlocked,
+                    totalScriptsBlocked = totalScriptsBlocked,
+                    isVpnConnected = isVpnConnected,
+                )
+            }
+            PrivacyDashboardCard(
+                metrics = dashboardMetrics,
+                accentColor = accentColor,
+                onRotateSeed = onRotateFingerprintSeed,
+                onOpenShieldControls = onOpenSecuritySettings,
+            )
+        }
+
+        // Compact Hero Status Banner Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 640.dp),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 82.dp),
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.img_privacy_banner_1794756388393),
+                        contentDescription = "OnionShield encryption backdrop",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            ),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = accentColor.copy(alpha = 0.18f),
+                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f)),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(accentColor),
+                                    )
+                                    Text(
+                                        text = if (isTor) "TOR / ONION ROUTING" else "SURFACE WEB HARDENED",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accentColor,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                            ) {
+                                Text(
+                                    text = "SEED #${tab.fingerprintSeed} • ${tab.userAgentLabel}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "OnionShield",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = if (isTor) {
+                                    "Traffic routed via ${config.torEndpoint}"
+                                } else {
+                                    "HTTPS Everywhere, WebRTC Guard & Tracker Shield active"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
@@ -682,38 +712,6 @@ fun StartPageContent(
                         }
                     }
                 }
-            }
-        }
-
-        // Telemetry Summary Row
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 640.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TelemetryMetricCard(
-                    label = "Ads Blocked",
-                    value = totalTrackersBlocked.toString(),
-                    icon = Icons.Rounded.Block,
-                    accent = shieldColors.secureGreen,
-                    modifier = Modifier.weight(1f),
-                )
-                TelemetryMetricCard(
-                    label = "Scripts Blocked",
-                    value = totalScriptsBlocked.toString(),
-                    icon = Icons.Rounded.CodeOff,
-                    accent = shieldColors.warningAmber,
-                    modifier = Modifier.weight(1f),
-                )
-                TelemetryMetricCard(
-                    label = "Active Shields",
-                    value = "$activeShieldCount/5",
-                    icon = Icons.Rounded.VerifiedUser,
-                    accent = accentColor,
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
 
@@ -1014,46 +1012,6 @@ private fun TorStatusPanel(
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun TelemetryMetricCard(
-    label: String,
-    value: String,
-    icon: ImageVector,
-    accent: Color,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = accent,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

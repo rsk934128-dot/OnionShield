@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
@@ -62,6 +64,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -252,6 +255,10 @@ fun TabSwitcherSheet(
 fun QuickShieldSheet(
     tab: BrowserTab,
     config: SecurityConfig,
+    tabs: List<BrowserTab> = listOf(tab),
+    totalTrackersBlocked: Int = tab.blockedTrackersCount,
+    totalScriptsBlocked: Int = tab.blockedScriptsCount,
+    isVpnConnected: Boolean = false,
     isBackgroundServiceRunning: Boolean = false,
     onToggleNoScript: (Boolean) -> Unit,
     onToggleFingerprint: (Boolean) -> Unit,
@@ -274,6 +281,23 @@ fun QuickShieldSheet(
     } else {
         shieldColors.surfaceAccent
     }
+    val dashboardMetrics = remember(
+        tabs,
+        tab,
+        config,
+        totalTrackersBlocked,
+        totalScriptsBlocked,
+        isVpnConnected,
+    ) {
+        PrivacyDashboardCalculator.computeMetrics(
+            tabs = tabs,
+            activeTab = tab,
+            config = config,
+            totalTrackersBlocked = totalTrackersBlocked,
+            totalScriptsBlocked = totalScriptsBlocked,
+            isVpnConnected = isVpnConnected,
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -282,11 +306,22 @@ fun QuickShieldSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            PrivacyDashboardCard(
+                metrics = dashboardMetrics,
+                accentColor = accent,
+                onRotateSeed = onRotateSeed,
+                onOpenShieldControls = {
+                    onDismiss()
+                    onOpenFullSettings()
+                },
+                compact = true,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

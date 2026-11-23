@@ -43,16 +43,19 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
-          if [ ! -f app/google-services.json ]; then
-            if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
-              echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
-              echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_BASE64."
-            elif [ -n "$GOOGLE_SERVICES_JSON" ]; then
-              printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
-              echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON."
-            else
-              echo "::warning::app/google-services.json is missing. Add GitHub Secret GOOGLE_SERVICES_JSON (or GOOGLE_SERVICES_JSON_BASE64) for Firebase Auth, Firestore, and Google Sign-In in CI builds."
-            fi
+          if [ -f app/google-services.json ]; then
+            echo "FIREBASE_STATUS=configured (bundled in repo)" >> "$GITHUB_ENV"
+          elif [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
+            echo "FIREBASE_STATUS=configured (from GOOGLE_SERVICES_JSON_BASE64 secret)" >> "$GITHUB_ENV"
+          elif [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "FIREBASE_STATUS=configured (from GOOGLE_SERVICES_JSON secret)" >> "$GITHUB_ENV"
+          else
+            echo "FIREBASE_STATUS=missing (set GOOGLE_SERVICES_JSON secret for Gemini AI & Cloud Sync)" >> "$GITHUB_ENV"
+            echo "::warning::app/google-services.json is missing. Add GitHub Secret GOOGLE_SERVICES_JSON (or GOOGLE_SERVICES_JSON_BASE64) for AI Trade Pilot, Gemini Chat, and Cloud Sync."
+            echo "### ⚠️ Firebase Configuration Notice" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`app/google-services.json\` was not found in the repository or GitHub Secrets. Add \`GOOGLE_SERVICES_JSON\` in **Settings → Secrets and variables → Actions** and re-run to enable AI Trade Pilot, Gemini Chat, and Firebase Cloud Sync." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Accept Android SDK licenses
@@ -181,6 +184,7 @@ jobs:
             - **APK**: `OnionShield-${{ env.RELEASE_TAG }}-release.apk`
             - **AAB**: `OnionShield-${{ env.RELEASE_TAG }}-release.aab`
             - **SHA-256**: Included in `OnionShield-${{ env.RELEASE_TAG }}-release.apk.sha256`
+            - **Firebase / AI Config**: `${{ env.FIREBASE_STATUS }}`
             - **Signing Mode**: `${{ env.SIGNING_MODE }}` (`production` uses `RELEASE_KEYSTORE_BASE64`; `ephemeral` uses a per-build CI key—configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD` for seamless in-place updates).
           files: |
             dist/OnionShield-${{ env.RELEASE_TAG }}-release.apk

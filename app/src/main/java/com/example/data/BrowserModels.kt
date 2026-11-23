@@ -242,6 +242,7 @@ data class SecurityConfig(
     val backgroundMediaPlaybackEnabled: Boolean = true,
     val biometricAppLockEnabled: Boolean = true,
     val vpnProfile: VpnServerProfile = VpnServerProfile.CLOUDFLARE_WARP,
+    val showAiOverlayButtons: Boolean = true,
 ) {
     val torEndpoint: String
         get() = "${torProxyProtocol.scheme}://$torProxyHost:$torProxyPort"

@@ -70,6 +70,7 @@ fun WebOverlayAiControls(
     accentColor: Color,
     onToggleTradePilot: () -> Unit,
     onOpenGeminiChat: () -> Unit,
+    onHideOverlay: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val shieldColors = LocalShieldColors.current
@@ -90,13 +91,13 @@ fun WebOverlayAiControls(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            modifier = Modifier.padding(start = 4.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
-                    .height(44.dp)
+                    .height(48.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onToggleTradePilot)
                     .padding(horizontal = 10.dp)
@@ -132,7 +133,7 @@ fun WebOverlayAiControls(
             IconButton(
                 onClick = onOpenGeminiChat,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .testTag("gemini_chat_fab"),
             ) {
                 Icon(
@@ -140,6 +141,20 @@ fun WebOverlayAiControls(
                     contentDescription = stringResource(R.string.cd_open_gemini_chat),
                     tint = accentColor,
                     modifier = Modifier.size(20.dp),
+                )
+            }
+
+            IconButton(
+                onClick = onHideOverlay,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("ai_overlay_hide_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.cd_hide_ai_overlay),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
@@ -299,17 +314,17 @@ fun TradePilotHudCard(
 
             if (!tradePilot.lastError.isNullOrBlank()) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         text = tradePilot.lastError,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        maxLines = 2,
+                        maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
             }
@@ -325,13 +340,13 @@ fun TradePilotHudCard(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp)
+                        .height(40.dp)
                         .testTag("trade_pilot_scan_click_button"),
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.TouchApp,
                         contentDescription = null,
-                        modifier = Modifier.size(15.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.size(4.dp))
                     Text(
@@ -345,15 +360,15 @@ fun TradePilotHudCard(
                 OutlinedButton(
                     onClick = onAnalyzeOnly,
                     enabled = !tradePilot.isAnalyzing,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     modifier = Modifier
-                        .height(38.dp)
+                        .height(40.dp)
                         .testTag("trade_pilot_analyze_only_button"),
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Visibility,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(15.dp),
                     )
                     Spacer(Modifier.size(4.dp))
                     Text(
@@ -375,9 +390,9 @@ fun TradePilotHudCard(
                             containerColor = tapColor,
                             contentColor = Color.Black,
                         ),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
-                            .height(38.dp)
+                            .height(40.dp)
                             .testTag("trade_pilot_manual_tap_button"),
                     ) {
                         Icon(
@@ -413,17 +428,19 @@ fun TradePilotHudCard(
                         FilterChip(
                             selected = selected,
                             onClick = { onSelectMinConfidence(threshold) },
+                            shape = RoundedCornerShape(10.dp),
                             label = {
                                 Text(
                                     text = "$threshold%",
                                     style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 )
                             },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = accentColor.copy(alpha = 0.22f),
                                 selectedLabelColor = accentColor,
                             ),
-                            modifier = Modifier.height(26.dp),
+                            modifier = Modifier.height(32.dp),
                         )
                     }
                 }

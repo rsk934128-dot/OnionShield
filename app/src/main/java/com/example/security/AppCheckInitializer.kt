@@ -64,3 +64,15 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
     }
 }
+
+fun isDefaultFirebaseAppInitialized(context: Context): Boolean =
+    runCatching {
+        FirebaseApp.getApps(context).any { it.name == FirebaseApp.DEFAULT_APP_NAME }
+    }.getOrDefault(false)
+
+fun ensureFirebaseAndAppCheckInitialized(context: Context, intent: Intent? = null): Boolean {
+    if (!isDefaultFirebaseAppInitialized(context)) {
+        configureAppCheck(context, intent)
+    }
+    return isDefaultFirebaseAppInitialized(context)
+}

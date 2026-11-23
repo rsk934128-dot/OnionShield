@@ -13,6 +13,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -62,6 +64,8 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.material.icons.rounded.VpnLock
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -79,6 +83,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -243,8 +248,11 @@ fun BrowserScreen(
                     )
 
                     Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
                     ) {
                         if (isForegroundServiceRunning) {
                             Surface(
@@ -676,6 +684,56 @@ fun BrowserScreen(
                                     )
                                 }
                                 DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(stringResource(R.string.ai_overlay_toggle_title))
+                                                Text(
+                                                    text = if (uiState.securityConfig.showAiOverlayButtons) {
+                                                        stringResource(R.string.ai_overlay_status_on)
+                                                    } else {
+                                                        stringResource(R.string.ai_overlay_status_off)
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (uiState.securityConfig.showAiOverlayButtons) {
+                                                        shieldColors.secureGreen
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                    },
+                                                )
+                                            }
+                                            Switch(
+                                                checked = uiState.securityConfig.showAiOverlayButtons,
+                                                onCheckedChange = null,
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (uiState.securityConfig.showAiOverlayButtons) {
+                                                Icons.Rounded.Visibility
+                                            } else {
+                                                Icons.Rounded.VisibilityOff
+                                            },
+                                            contentDescription = null,
+                                            tint = if (uiState.securityConfig.showAiOverlayButtons) {
+                                                accentColor
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("menu_toggle_ai_overlay"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.toggleAiOverlayButtons()
+                                    },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Scan QR Code URL") },
                                     leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, contentDescription = null) },
                                     modifier = Modifier.testTag("menu_scan_qr"),
@@ -793,7 +851,11 @@ fun BrowserScreen(
             }
         },
         floatingActionButton = {
-            if (activeTab.isStartPage && fullscreenCustomView == null && !uiState.isOmniboxFocused) {
+            if (uiState.securityConfig.showAiOverlayButtons &&
+                activeTab.isStartPage &&
+                fullscreenCustomView == null &&
+                !uiState.isOmniboxFocused
+            ) {
                 FloatingActionButton(
                     onClick = onOpenGeminiAssistant,
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -821,6 +883,7 @@ fun BrowserScreen(
                     torProxyState = uiState.torProxyState,
                     totalTrackersBlocked = uiState.totalTrackersBlocked,
                     totalScriptsBlocked = uiState.totalScriptsBlocked,
+                    tabs = uiState.tabs,
                     pinnedApps = pinnedApps,
                     onNavigateUrl = { url -> viewModel.openUrlOrSearch(url) },
                     onInstallHomeApp = { rawTitle, rawUrl ->
@@ -837,6 +900,7 @@ fun BrowserScreen(
                     onToggleFingerprint = viewModel::setFingerprintRandomization,
                     onToggleAdBlocker = viewModel::setTrackerBlocker,
                     onTogglePopupBlocker = viewModel::setPopupBlocker,
+                    onRotateFingerprintSeed = viewModel::regenerateFingerprintSeed,
                     onTestTorSocket = viewModel::testTorProxyConnection,
                     onOpenSecuritySettings = onOpenSecuritySettings,
                     vpnStatus = vpnTunnelStatus,
@@ -1065,8 +1129,9 @@ fun BrowserScreen(
                             )
                         }
 
-                        // Compact Top-Right AI Controls (hidden while expanded or during capture)
-                        if (fullscreenCustomView == null &&
+                        // Compact Top-Right AI Controls (hidden if user turns overlay off, while expanded, or during capture)
+                        if (uiState.securityConfig.showAiOverlayButtons &&
+                            fullscreenCustomView == null &&
                             !uiState.isOmniboxFocused &&
                             !uiState.tradePilot.isPanelExpanded &&
                             !uiState.tradePilot.isCapturingScreen
@@ -1076,6 +1141,7 @@ fun BrowserScreen(
                                 accentColor = accentColor,
                                 onToggleTradePilot = viewModel::toggleTradePilotPanel,
                                 onOpenGeminiChat = onOpenGeminiAssistant,
+                                onHideOverlay = { viewModel.setAiOverlayButtonsVisible(false) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(top = 8.dp, end = 8.dp),
@@ -1356,6 +1422,10 @@ fun BrowserScreen(
         QuickShieldSheet(
             tab = activeTab,
             config = uiState.securityConfig,
+            tabs = uiState.tabs,
+            totalTrackersBlocked = uiState.totalTrackersBlocked,
+            totalScriptsBlocked = uiState.totalScriptsBlocked,
+            isVpnConnected = vpnTunnelStatus is VpnTunnelStatus.Connected,
             isBackgroundServiceRunning = isForegroundServiceRunning,
             onToggleNoScript = viewModel::setNoScript,
             onToggleFingerprint = viewModel::setFingerprintRandomization,

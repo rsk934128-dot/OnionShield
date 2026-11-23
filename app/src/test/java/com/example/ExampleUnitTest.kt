@@ -242,9 +242,113 @@ class ExampleUnitTest {
         val prompt = GeminiShieldRepository.buildTradeAnalysisPrompt(
             pageUrl = "https://m.expertoption.com",
             domControlsSummary = TradePilotHelper.formatControlsSummary(emptyList()),
+            visualTelemetrySummary = "VERIFIED LIVE RENDERED CHART",
         )
         assertTrue(prompt.contains("https://m.expertoption.com"))
         assertTrue(prompt.contains("BUY or SELL"))
+        assertTrue(prompt.contains("VERIFIED LIVE RENDERED CHART"))
         assertNotNull(GeminiShieldRepository.TRADE_VISION_SCHEMA)
+    }
+
+    @Test
+    fun tradePilot_analyzesChartPixelsForBlankRisingAndFallingSignals() {
+        val w = 100
+        val h = 100
+        val darkBg = 0xFF0E1621.toInt()
+        val greenCandle = 0xFF16C784.toInt()
+        val redCandle = 0xFFEA3943.toInt()
+
+        // 1. Uniform blank frame
+        val blankPixels = IntArray(w * h) { darkBg }
+        val blankResult = TradePilotHelper.analyzeChartPixels(blankPixels, w, h)
+        assertFalse(blankResult.hasChartDetail)
+        assertEquals(TradeDecision.HOLD, blankResult.suggestedDecision)
+
+        // 2. Rising bullish green candles on the right half (higher price = lower y)
+        val risingPixels = IntArray(w * h) { darkBg }
+        for (y in 55..68) {
+            for (x in 25..36) risingPixels[y * w + x] = redCandle
+        }
+        for (y in 26..44) {
+            for (x in 58..82) risingPixels[y * w + x] = greenCandle
+        }
+        val risingResult = TradePilotHelper.analyzeChartPixels(risingPixels, w, h)
+        assertTrue(risingResult.hasChartDetail)
+        assertEquals("RISING", risingResult.slopeDirection)
+        assertEquals(TradeDecision.BUY, risingResult.suggestedDecision)
+
+        // 3. Falling bearish red candles on the right half (lower price = higher y)
+        val fallingPixels = IntArray(w * h) { darkBg }
+        for (y in 26..38) {
+            for (x in 25..36) fallingPixels[y * w + x] = greenCandle
+        }
+        for (y in 56..74) {
+            for (x in 58..82) fallingPixels[y * w + x] = redCandle
+        }
+        val fallingResult = TradePilotHelper.analyzeChartPixels(fallingPixels, w, h)
+        assertTrue(fallingResult.hasChartDetail)
+        assertEquals("FALLING", fallingResult.slopeDirection)
+        assertEquals(TradeDecision.SELL, fallingResult.suggestedDecision)
+
+        // 4. Parse canvas snapshot JSON
+        val rawCanvasJson = "\"[{\\\"leftRatio\\\":0.05,\\\"topRatio\\\":0.2,\\\"rightRatio\\\":0.95,\\\"bottomRatio\\\":0.75,\\\"dataUrl\\\":\\\"data:image/jpeg;base64,/9j/4AAQ\\\"}]\""
+        val parsedCharts = TradePilotHelper.parseCanvasSnapshotsJson(rawCanvasJson)
+        assertEquals(1, parsedCharts.size)
+        assertEquals(0.05f, parsedCharts[0].leftRatio, 0.001f)
+        assertEquals("data:image/jpeg;base64,/9j/4AAQ", parsedCharts[0].dataUrl)
+    }
+
+    @Test
+    fun privacyDashboard_computesTrackersEntropyAndFingerprintStatus() {
+        val tab1 = com.example.data.BrowserTab(fingerprintSeed = "A1B2C3D4", userAgentLabel = "Pixel Hardened")
+        val tab2 = com.example.data.BrowserTab(fingerprintSeed = "11111111", userAgentLabel = "Tor Mobile")
+
+        val protectedCfg = com.example.data.SecurityConfig(
+            fingerprintRandomizationEnabled = true,
+            webRtcLeakProtectionEnabled = true,
+            trackerBlockerEnabled = true,
+            blockThirdPartyCookies = true,
+            noScriptEnabled = true,
+        )
+        val protectedMetrics = com.example.ui.components.PrivacyDashboardCalculator.computeMetrics(
+            tabs = listOf(tab1, tab2),
+            activeTab = tab1,
+            config = protectedCfg,
+            totalTrackersBlocked = 42,
+            totalScriptsBlocked = 9,
+            isVpnConnected = true,
+        )
+        assertEquals(42, protectedMetrics.totalTrackersBlocked)
+        assertEquals(9, protectedMetrics.totalScriptsBlocked)
+        assertEquals(
+            com.example.ui.components.FingerprintProtectionStatus.PROTECTED,
+            protectedMetrics.fingerprintStatus,
+        )
+        assertEquals(2, protectedMetrics.activeTabCount)
+        assertTrue(protectedMetrics.averageSessionEntropyBits >= 24.0)
+        assertEquals("High Entropy", protectedMetrics.entropyTierLabel)
+
+        val exposedCfg = com.example.data.SecurityConfig(
+            fingerprintRandomizationEnabled = false,
+            webRtcLeakProtectionEnabled = false,
+            trackerBlockerEnabled = false,
+            blockThirdPartyCookies = false,
+            noScriptEnabled = false,
+            httpsEverywhereEnabled = false,
+        )
+        val exposedMetrics = com.example.ui.components.PrivacyDashboardCalculator.computeMetrics(
+            tabs = listOf(tab1),
+            activeTab = tab1,
+            config = exposedCfg,
+            totalTrackersBlocked = 0,
+            totalScriptsBlocked = 0,
+            isVpnConnected = false,
+        )
+        assertEquals(
+            com.example.ui.components.FingerprintProtectionStatus.EXPOSED,
+            exposedMetrics.fingerprintStatus,
+        )
+        assertTrue(exposedMetrics.averageSessionEntropyBits < 10.0)
+        assertEquals("Low Entropy", exposedMetrics.entropyTierLabel)
     }
 }

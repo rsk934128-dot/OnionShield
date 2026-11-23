@@ -64,6 +64,7 @@ class PrivacyPreferencesRepository(private val context: Context) {
         val LAST_MEDIA_DURATION_MS = longPreferencesKey("last_media_duration_ms")
         val SURFACE_DEVICE_SEED = stringPreferencesKey("surface_device_seed")
         val AUTHENTICATED_SESSION_HOSTS = stringSetPreferencesKey("authenticated_session_hosts")
+        val SHOW_AI_OVERLAY_BUTTONS = booleanPreferencesKey("show_ai_overlay_buttons")
     }
 
     val securityConfig: Flow<SecurityConfig> = context.privacyDataStore.data.map { prefs ->
@@ -113,6 +114,7 @@ class PrivacyPreferencesRepository(private val context: Context) {
             vpnProfile = prefs[Keys.VPN_PROFILE]?.let {
                 runCatching { VpnServerProfile.valueOf(it) }.getOrNull()
             } ?: VpnServerProfile.CLOUDFLARE_WARP,
+            showAiOverlayButtons = prefs[Keys.SHOW_AI_OVERLAY_BUTTONS] ?: true,
         )
     }
 
@@ -364,6 +366,10 @@ class PrivacyPreferencesRepository(private val context: Context) {
 
     suspend fun setVpnProfile(profile: VpnServerProfile) {
         context.privacyDataStore.edit { it[Keys.VPN_PROFILE] = profile.name }
+    }
+
+    suspend fun setShowAiOverlayButtons(enabled: Boolean) {
+        context.privacyDataStore.edit { it[Keys.SHOW_AI_OVERLAY_BUTTONS] = enabled }
     }
 
     suspend fun savePersistedMediaState(state: PersistedMediaState) {

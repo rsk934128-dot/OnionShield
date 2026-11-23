@@ -103,6 +103,7 @@ open class GeminiShieldRepository {
         Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = modelName,
             generationConfig = generationConfig {
+                temperature = 0.2f
                 responseMimeType = "application/json"
                 responseSchema = TRADE_VISION_SCHEMA
             },
@@ -243,8 +244,13 @@ open class GeminiShieldRepository {
         screenshot: Bitmap,
         pageUrl: String,
         domControlsSummary: String,
+        visualTelemetrySummary: String = "",
     ): TradeSignalDecision {
-        val promptText = buildTradeAnalysisPrompt(pageUrl = pageUrl, domControlsSummary = domControlsSummary)
+        val promptText = buildTradeAnalysisPrompt(
+            pageUrl = pageUrl,
+            domControlsSummary = domControlsSummary,
+            visualTelemetrySummary = visualTelemetrySummary,
+        )
         val multimodalInput = content {
             image(screenshot)
             text(promptText)
@@ -349,7 +355,7 @@ open class GeminiShieldRepository {
             properties = mapOf(
                 "decision" to Schema.enumeration(
                     values = listOf("BUY", "SELL", "HOLD"),
-                    description = "Trade action after inspecting chart momentum, price action, and button visibility. Use HOLD if unclear or controls are absent.",
+                    description = "Decisive trade action: choose BUY or SELL whenever a live chart and trading controls are visible. Reserve HOLD strictly for non-chart pages (login, settings, deposit, or offline error).",
                 ),
                 "confidence" to Schema.integer(
                     description = "Decision confidence from 0 to 100",
@@ -446,18 +452,29 @@ open class GeminiShieldRepository {
             )
         }
 
-        fun buildTradeAnalysisPrompt(pageUrl: String, domControlsSummary: String): String = buildString {
-            appendLine("Examine this live trading webpage screenshot carefully and decide BUY, SELL, or HOLD.")
+        fun buildTradeAnalysisPrompt(
+            pageUrl: String,
+            domControlsSummary: String,
+            visualTelemetrySummary: String = "",
+        ): String = buildString {
+            appendLine("You are an expert short-term price-action trader inspecting a live trading chart screenshot. Decide BUY or SELL accurately and decisively.")
             if (pageUrl.isNotBlank()) {
                 appendLine("Page URL: $pageUrl")
             }
+            if (visualTelemetrySummary.isNotBlank()) {
+                appendLine()
+                appendLine("Verified Viewport Pixel Telemetry:")
+                appendLine(visualTelemetrySummary)
+            }
             appendLine()
-            appendLine("Short-term chart inspection steps:")
-            appendLine("1. Identify the asset/pair and visible account mode (REAL or DEMO at the top bar) plus the active price line/candles.")
-            appendLine("2. Focus on the latest price swing leading right into the live price marker/dot: upward breakout, support V-bounce, or rising slope favors BUY; downward drop, resistance rejection, or falling slope favors SELL.")
-            appendLine("3. Short-term 5s-60s charts naturally oscillate — do NOT choose HOLD just because volatility exists. Give your best BUY or SELL call with an honest confidence score (50-95) whenever a chart and BUY/SELL buttons are present.")
-            appendLine("4. Output HOLD only if the chart/Buy-Sell buttons are not visible on screen or the price line is completely flat/frozen.")
-            appendLine("5. Return exact normalized (0.0 to 1.0) coordinates of the chosen BUY or SELL button center.")
+            appendLine("Short-term chart training rules:")
+            appendLine("1. Identify the asset pair (e.g. EUR / USD) and visible account badge (REAL or DEMO at the top).")
+            appendLine("2. Inspect the latest 5-10 candlesticks or live price line moving into the horizontal active price line on the right:")
+            appendLine("   - BUY signals: consecutive green candles, bullish engulfing or lower-wick hammer rejection at support, higher lows, or upward rebound out of a steep drop.")
+            appendLine("   - SELL signals: consecutive red candles, bearish engulfing or upper-wick shooting-star rejection at resistance, lower highs, or downward breakdown after a rally.")
+            appendLine("3. ALWAYS choose BUY or SELL with a realistic confidence (55-92) whenever candlesticks/price line AND Buy/Sell buttons are visible — short-term binary charts constantly oscillate and require committing to the stronger directional edge.")
+            appendLine("4. Output HOLD ONLY when there is no trading chart or Buy/Sell controls on screen (e.g. login form, deposit page, or offline screen).")
+            appendLine("5. Return accurate viewport-normalized coordinates (0.0 to 1.0) of the target BUY or SELL button center.")
             if (domControlsSummary.isNotBlank()) {
                 appendLine()
                 appendLine("Detected DOM control hints (viewport-relative):")

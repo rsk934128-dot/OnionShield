@@ -36,6 +36,36 @@ data class ResolvedClickTarget(
     val matchedLabel: String,
 )
 
+data class CanvasChartSnapshot(
+    val leftRatio: Float,
+    val topRatio: Float,
+    val rightRatio: Float,
+    val bottomRatio: Float,
+    val dataUrl: String? = null,
+)
+
+data class BitmapChartTelemetry(
+    val hasChartDetail: Boolean,
+    val recentGreenPixels: Int,
+    val recentRedPixels: Int,
+    val slopeDirection: String, // "RISING", "FALLING", or "FLAT"
+    val suggestedDecision: TradeDecision,
+    val suggestedConfidence: Int,
+) {
+    fun toPromptSummary(): String {
+        val status = if (hasChartDetail) {
+            "VERIFIED LIVE RENDERED CHART (pixels & colored candles/price line are present — do NOT report canvas as blank)."
+        } else {
+            "Low visual detail in center viewport."
+        }
+        return buildString {
+            appendLine(status)
+            appendLine("Right-side recent candle colors: green_pixels=$recentGreenPixels, red_pixels=$recentRedPixels")
+            append("Detected price trajectory slope: $slopeDirection (pixel momentum bias: ${suggestedDecision.name})")
+        }
+    }
+}
+
 object TradePilotHelper {
 
     val TRADE_DOM_SCAN_SCRIPT: String = """
@@ -43,10 +73,10 @@ object TradePilotHelper {
             try {
                 var vw = window.innerWidth || document.documentElement.clientWidth || 1;
                 var vh = window.innerHeight || document.documentElement.clientHeight || 1;
-                var candidates = document.querySelectorAll('button, [role="button"], a, div, span');
+                var candidates = document.querySelectorAll('button, [role="button"], a, [class*="deal"], [class*="buy"], [class*="sell"], [class*="call"], [class*="put"], [data-action], div, span');
                 var results = [];
                 var seen = [];
-                for (var i = 0; i < candidates.length && results.length < 12; i++) {
+                for (var i = 0; i < candidates.length && results.length < 28; i++) {
                     var el = candidates[i];
                     if (!el || !el.getBoundingClientRect) continue;
                     var rawText = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
@@ -54,25 +84,34 @@ object TradePilotHelper {
                     var upperText = rawText.toUpperCase();
                     var upperCls = cls.toUpperCase();
                     if (!upperText && !upperCls) continue;
-                    if (upperText.length > 40) continue;
+                    if (upperText.length > 48) continue;
 
                     var isBuyText = /\b(BUY|CALL|UP|HIGHER|LONG)\b/.test(upperText);
                     var isSellText = /\b(SELL|PUT|DOWN|LOWER|SHORT)\b/.test(upperText);
-                    var isBuyCls = !isBuyText && !isSellText && /\b(BUY|CALL|UP-BTN)\b/.test(upperCls);
-                    var isSellCls = !isBuyText && !isSellText && /\b(SELL|PUT|DOWN-BTN)\b/.test(upperCls);
+                    var isBuyCls = !isBuyText && !isSellText && /(^|[^A-Z0-9])(BUY|CALL|UP|HIGHER)([^A-Z0-9]|$)/.test(upperCls);
+                    var isSellCls = !isBuyText && !isSellText && /(^|[^A-Z0-9])(SELL|PUT|DOWN|LOWER)([^A-Z0-9]|$)/.test(upperCls);
                     if (!(isBuyText ^ isSellText) && !(isBuyCls ^ isSellCls)) continue;
 
                     var action = (isBuyText || isBuyCls) ? 'BUY' : 'SELL';
-                    var target = el.closest('button, [role="button"], a, [class*="btn"], [class*="button"], [class*="deal"]') || el;
+                    var target = el;
+                    var closestTarget = el.closest('button, [role="button"], a, [class*="btn"], [class*="button"], [class*="deal"]');
+                    if (closestTarget) {
+                        var ctText = (closestTarget.innerText || closestTarget.textContent || '').replace(/\s+/g, ' ').toUpperCase();
+                        var ctBuy = /\b(BUY|CALL|UP|HIGHER|LONG)\b/.test(ctText);
+                        var ctSell = /\b(SELL|PUT|DOWN|LOWER|SHORT)\b/.test(ctText);
+                        if (!(ctBuy && ctSell)) {
+                            target = closestTarget;
+                        }
+                    }
                     var rect = target.getBoundingClientRect();
                     if (!rect || rect.width <= 0 || rect.height <= 0) continue;
                     var wRatio = rect.width / vw;
                     var hRatio = rect.height / vh;
-                    if (wRatio < 0.06 || hRatio < 0.025 || wRatio > 0.65 || hRatio > 0.28) continue;
+                    if (wRatio < 0.06 || hRatio < 0.025 || wRatio > 0.62 || hRatio > 0.28) continue;
 
                     var cx = (rect.left + rect.width * 0.5) / vw;
                     var cy = (rect.top + rect.height * 0.5) / vh;
-                    if (cx < 0.02 || cx > 0.98 || cy < 0.05 || cy > 0.98) continue;
+                    if (cx < 0.02 || cx > 0.98 || cy < 0.05 || cy > 0.99) continue;
 
                     var style = window.getComputedStyle ? window.getComputedStyle(target) : null;
                     if (style && (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') < 0.1)) continue;
@@ -90,6 +129,37 @@ object TradePilotHelper {
                         widthRatio: Number(wRatio.toFixed(4)),
                         heightRatio: Number(hRatio.toFixed(4)),
                         enabled: !disabled
+                    });
+                }
+                return JSON.stringify(results);
+            } catch (e) {
+                return '[]';
+            }
+        })();
+    """.trimIndent()
+
+    val CANVAS_CHART_CAPTURE_SCRIPT: String = """
+        (function() {
+            try {
+                var vw = window.innerWidth || document.documentElement.clientWidth || 1;
+                var vh = window.innerHeight || document.documentElement.clientHeight || 1;
+                var canvases = document.querySelectorAll('canvas');
+                var results = [];
+                for (var i = 0; i < canvases.length && results.length < 3; i++) {
+                    var c = canvases[i];
+                    if (!c || !c.getBoundingClientRect) continue;
+                    var r = c.getBoundingClientRect();
+                    if (r.width < 120 || r.height < 80) continue;
+                    var dataUrl = '';
+                    try {
+                        dataUrl = c.toDataURL('image/jpeg', 0.85);
+                    } catch (_) {}
+                    results.push({
+                        leftRatio: Number((r.left / vw).toFixed(4)),
+                        topRatio: Number((r.top / vh).toFixed(4)),
+                        rightRatio: Number((r.right / vw).toFixed(4)),
+                        bottomRatio: Number((r.bottom / vh).toFixed(4)),
+                        dataUrl: dataUrl || ''
                     });
                 }
                 return JSON.stringify(results);
@@ -308,4 +378,173 @@ object TradePilotHelper {
         minConfidencePercent: Int,
     ): Boolean = decision.decision != TradeDecision.HOLD &&
         decision.confidence >= minConfidencePercent.coerceIn(1, 100)
+
+    fun parseCanvasSnapshotsJson(rawJsResult: String?): List<CanvasChartSnapshot> {
+        val unwrapped = unwrapJsEvalString(rawJsResult).trim()
+        if (!unwrapped.startsWith("[")) return emptyList()
+        val results = mutableListOf<CanvasChartSnapshot>()
+        var inString = false
+        var escaped = false
+        var objStart = -1
+        var depth = 0
+        for (i in unwrapped.indices) {
+            val ch = unwrapped[i]
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            if (ch == '\\' && inString) {
+                escaped = true
+                continue
+            }
+            if (ch == '"') {
+                inString = !inString
+                continue
+            }
+            if (inString) continue
+            if (ch == '{') {
+                if (depth == 0) objStart = i
+                depth++
+            } else if (ch == '}') {
+                depth--
+                if (depth == 0 && objStart >= 0) {
+                    val map = parseFlatJsonObject(unwrapped.substring(objStart, i + 1))
+                    val left = map["leftRatio"]?.toFloatOrNull() ?: 0f
+                    val top = map["topRatio"]?.toFloatOrNull() ?: 0f
+                    val right = map["rightRatio"]?.toFloatOrNull() ?: 0f
+                    val bottom = map["bottomRatio"]?.toFloatOrNull() ?: 0f
+                    if (right > left && bottom > top) {
+                        results.add(
+                            CanvasChartSnapshot(
+                                leftRatio = left.coerceIn(0f, 1f),
+                                topRatio = top.coerceIn(0f, 1f),
+                                rightRatio = right.coerceIn(0f, 1f),
+                                bottomRatio = bottom.coerceIn(0f, 1f),
+                                dataUrl = map["dataUrl"]?.takeIf { it.startsWith("data:image/") },
+                            ),
+                        )
+                    }
+                    objStart = -1
+                }
+            }
+        }
+        return results
+    }
+
+    fun analyzeBitmapChart(bitmap: android.graphics.Bitmap): BitmapChartTelemetry {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0 || bitmap.isRecycled) {
+            return BitmapChartTelemetry(
+                hasChartDetail = false,
+                recentGreenPixels = 0,
+                recentRedPixels = 0,
+                slopeDirection = "FLAT",
+                suggestedDecision = TradeDecision.HOLD,
+                suggestedConfidence = 0,
+            )
+        }
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+        return analyzeChartPixels(pixels, w, h)
+    }
+
+    fun analyzeChartPixels(pixels: IntArray, width: Int, height: Int): BitmapChartTelemetry {
+        if (width < 16 || height < 16 || pixels.size < width * height) {
+            return BitmapChartTelemetry(false, 0, 0, "FLAT", TradeDecision.HOLD, 0)
+        }
+        val xStart = (width * 0.12f).toInt().coerceIn(0, width - 1)
+        val xEnd = (width * 0.88f).toInt().coerceIn(xStart + 1, width)
+        val yStart = (height * 0.22f).toInt().coerceIn(0, height - 1)
+        val yEnd = (height * 0.78f).toInt().coerceIn(yStart + 1, height)
+        val xMid = (width * 0.52f).toInt().coerceIn(xStart, xEnd - 1)
+
+        val lumaBuckets = HashSet<Int>(32)
+        var minLuma = 255
+        var maxLuma = 0
+        var greenTotal = 0
+        var redTotal = 0
+        var recentGreen = 0
+        var recentRed = 0
+        var leftYSum = 0L
+        var leftCount = 0L
+        var rightYSum = 0L
+        var rightCount = 0L
+
+        val stepX = (width / 160).coerceAtLeast(1)
+        val stepY = (height / 160).coerceAtLeast(1)
+
+        var y = yStart
+        while (y < yEnd) {
+            val rowOffset = y * width
+            var x = xStart
+            while (x < xEnd) {
+                val c = pixels[rowOffset + x]
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                val luma = (r * 30 + g * 59 + b * 11) / 100
+                if (luma < minLuma) minLuma = luma
+                if (luma > maxLuma) maxLuma = luma
+                lumaBuckets.add(luma / 12)
+
+                val isGreenCandle = g > r + 24 && g > b + 16 && g >= 75
+                val isRedCandle = r > g + 24 && r > b + 16 && r >= 75
+                val isBrightLine = (maxOf(r, g, b) - minOf(r, g, b) > 35) || luma > 135
+
+                if (isGreenCandle) {
+                    greenTotal++
+                    if (x >= xMid) recentGreen++
+                } else if (isRedCandle) {
+                    redTotal++
+                    if (x >= xMid) recentRed++
+                }
+
+                if (isGreenCandle || isRedCandle || isBrightLine) {
+                    if (x < xMid) {
+                        leftYSum += y
+                        leftCount++
+                    } else {
+                        rightYSum += y
+                        rightCount++
+                    }
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+
+        val lumaSpread = maxLuma - minLuma
+        val hasCandlesOrLine = (greenTotal + redTotal) >= 8 || (lumaBuckets.size >= 4 && lumaSpread >= 36)
+
+        val avgLeftY = if (leftCount > 0) leftYSum.toFloat() / leftCount else 0f
+        val avgRightY = if (rightCount > 0) rightYSum.toFloat() / rightCount else 0f
+        // Lower Y means higher price on screen
+        val dyNorm = if (leftCount > 0 && rightCount > 0) (avgLeftY - avgRightY) / height.toFloat() else 0f
+        val slopeDirection = when {
+            dyNorm > 0.025f -> "RISING"
+            dyNorm < -0.025f -> "FALLING"
+            else -> "FLAT"
+        }
+
+        val candleDiff = recentGreen - recentRed
+        val (decision, confidence) = when {
+            !hasCandlesOrLine -> TradeDecision.HOLD to 0
+            recentGreen > recentRed * 1.15f && slopeDirection != "FALLING" -> TradeDecision.BUY to 66
+            recentRed > recentGreen * 1.15f && slopeDirection != "RISING" -> TradeDecision.SELL to 66
+            slopeDirection == "RISING" && candleDiff >= 0 -> TradeDecision.BUY to 63
+            slopeDirection == "FALLING" && candleDiff <= 0 -> TradeDecision.SELL to 63
+            recentGreen >= recentRed -> TradeDecision.BUY to 58
+            else -> TradeDecision.SELL to 58
+        }
+
+        return BitmapChartTelemetry(
+            hasChartDetail = hasCandlesOrLine,
+            recentGreenPixels = recentGreen,
+            recentRedPixels = recentRed,
+            slopeDirection = slopeDirection,
+            suggestedDecision = decision,
+            suggestedConfidence = confidence,
+        )
+    }
 }
