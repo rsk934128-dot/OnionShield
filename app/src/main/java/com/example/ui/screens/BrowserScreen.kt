@@ -124,12 +124,14 @@ import com.example.data.BrowserMode
 import com.example.data.BrowserTab
 import com.example.data.TorProxyState
 import com.example.data.VpnTunnelStatus
+import com.example.security.GeminiApiKeyStore
 import com.example.ui.BrowserUiState
 import com.example.ui.BrowserViewModel
 import com.example.ui.components.BrowserWebView
 import com.example.ui.components.CircuitDiagnosticSheet
 import com.example.ui.components.DisclaimerDialog
 import com.example.ui.components.DownloadSandboxDialog
+import com.example.ui.components.GeminiApiKeyDialog
 import com.example.ui.components.InstallHomeAppDialog
 import com.example.ui.components.LinkActionSheet
 import com.example.ui.components.QrScannerModal
@@ -199,6 +201,9 @@ fun BrowserScreen(
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showCustomLinkInstallDialog by remember { mutableStateOf(false) }
     var showQrScanner by remember { mutableStateOf(false) }
+    var showGeminiApiKeyDialog by remember { mutableStateOf(false) }
+    val geminiKeySource by GeminiApiKeyStore.activeSource.collectAsStateWithLifecycle()
+    val maskedGeminiKey by GeminiApiKeyStore.maskedUserKey.collectAsStateWithLifecycle()
 
     val activeTab = uiState.activeTab
     val isTorMode = uiState.securityConfig.browserMode == BrowserMode.TOR_ONION
@@ -1083,6 +1088,7 @@ fun BrowserScreen(
                                 onToggleAutoPilot = viewModel::toggleTradeAutoPilot,
                                 onSelectMinConfidence = viewModel::setTradeMinConfidence,
                                 onDismiss = viewModel::closeTradePilotPanel,
+                                onOpenApiKeyDialog = { showGeminiApiKeyDialog = true },
                             )
                         }
                     }
@@ -1523,6 +1529,22 @@ fun BrowserScreen(
                 viewModel.showStatusBanner("Opened QR link: $scannedInput")
             },
             onDismiss = { showQrScanner = false },
+        )
+    }
+
+    if (showGeminiApiKeyDialog) {
+        GeminiApiKeyDialog(
+            activeSource = geminiKeySource,
+            maskedUserKey = maskedGeminiKey,
+            onSaveKey = { rawKey ->
+                viewModel.saveCustomGeminiApiKey(rawKey)
+                showGeminiApiKeyDialog = false
+            },
+            onClearKey = {
+                viewModel.clearCustomGeminiApiKey()
+                showGeminiApiKeyDialog = false
+            },
+            onDismiss = { showGeminiApiKeyDialog = false },
         )
     }
 }

@@ -46,6 +46,14 @@ jobs:
             fi
           fi
 
+      - name: Configure GEMINI_API_KEY in .env from GitHub Secret (if set)
+        env:
+          GEMINI_API_KEY_SECRET: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$GEMINI_API_KEY_SECRET" ]; then
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY_SECRET" > .env
+          fi
+
       - name: Accept Android SDK licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"

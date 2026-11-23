@@ -99,4 +99,18 @@
     <string name="privacy_dashboard_entropy_gauge_label">Average Session Entropy</string>
     <string name="privacy_dashboard_rotate_seed">Rotate Seed</string>
     <string name="privacy_dashboard_manage_shields">Shield Settings</string>
+    <string name="gemini_key_settings_title">Gemini API Key (Direct Bypass)</string>
+    <string name="gemini_key_settings_subtitle">Optional personal key stored locally with AES-256 encryption so Gemini Chat &amp; Trade Pilot run directly on any phone APK without Firebase App Check.</string>
+    <string name="gemini_key_dialog_title">Configure Gemini API Key</string>
+    <string name="gemini_key_dialog_subtitle">Paste your Google AI Studio Gemini API key below. It stays encrypted on this device and bypasses Firebase App Check.</string>
+    <string name="gemini_key_input_label">Gemini API Key</string>
+    <string name="gemini_key_input_placeholder">AIzaSy…</string>
+    <string name="gemini_key_save_button">Save Key</string>
+    <string name="gemini_key_clear_button">Clear Key</string>
+    <string name="gemini_key_set_action">Set API Key</string>
+    <string name="gemini_key_configure_button">Set API Key</string>
+    <string name="gemini_key_update_button">Update API Key</string>
+    <string name="gemini_key_get_hint">Create a free key at aistudio.google.com/apikey. Keys are never logged or shared.</string>
+    <string name="cd_gemini_key_action">Configure Gemini API key</string>
+    <string name="cd_toggle_key_visibility">Toggle API key visibility</string>
 </resources>

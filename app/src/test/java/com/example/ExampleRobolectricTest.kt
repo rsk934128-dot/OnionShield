@@ -1365,4 +1365,72 @@ class ExampleRobolectricTest {
         assertEquals("SEED2222", repo.surfaceDeviceSeed.first())
         assertTrue(repo.authenticatedSessionHosts.first().isEmpty())
     }
+
+    @Test
+    fun `custom gemini api key is AES-256 encrypted in datastore and cleared cleanly`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = com.example.data.PrivacyPreferencesRepository(context)
+        val store = com.example.security.GeminiApiKeyStore
+        try {
+            val rawKey = "AIzaSyRobolectricSampleKey12345"
+            val encrypted = store.encryptForStorage(context, rawKey)
+            assertTrue(encrypted.isNotBlank())
+            assertFalse(encrypted.contains(rawKey))
+
+            repo.saveEncryptedGeminiApiKey(encrypted)
+            val storedPayload = repo.encryptedGeminiApiKey.first()
+            assertEquals(encrypted, storedPayload)
+
+            val decrypted = store.decryptFromStorage(context, storedPayload)
+            assertEquals(rawKey, decrypted)
+
+            store.setUserApiKey(decrypted)
+            assertEquals(com.example.security.GeminiKeySource.USER_CUSTOM, store.activeSource.value)
+            assertEquals("AIza••••••2345", store.maskedUserKey.value)
+
+            repo.clearGeminiApiKey()
+            store.setUserApiKey(null)
+            org.junit.Assert.assertNull(repo.encryptedGeminiApiKey.first())
+            assertFalse(store.hasUserCustomKey())
+        } finally {
+            store.setUserApiKey(null)
+        }
+    }
+
+    @Test
+    fun `direct gemini rest client builds multi turn json and parses responses and errors`() {
+        val client = com.example.data.repository.DirectGeminiRestClient
+        val history = listOf(
+            com.example.data.repository.GeminiChatMessage(
+                role = com.example.data.repository.ChatRole.USER,
+                text = "What is DoH?",
+            ),
+            com.example.data.repository.GeminiChatMessage(
+                role = com.example.data.repository.ChatRole.MODEL,
+                text = "DNS over HTTPS encrypts DNS lookups.",
+            ),
+        )
+        val requestJson = client.buildChatRequestJson(history, "Explain Tor .onion routing")
+        val contents = requestJson.getJSONArray("contents")
+        assertEquals(3, contents.length())
+        assertEquals("user", contents.getJSONObject(0).getString("role"))
+        assertEquals("model", contents.getJSONObject(1).getString("role"))
+        assertEquals("user", contents.getJSONObject(2).getString("role"))
+        assertTrue(requestJson.has("systemInstruction"))
+
+        val ssePayload = """
+            {"candidates":[{"content":{"parts":[{"text":"Hello "},{"text":"Shield!"}]}}]}
+        """.trimIndent()
+        assertEquals("Hello Shield!", client.extractTextFromResponseJson(ssePayload))
+        org.junit.Assert.assertNull(client.extractTextFromResponseJson("{}"))
+
+        val invalidKeyErr = client.parseApiErrorMessage(
+            400,
+            """{"error":{"message":"API key not valid. Please pass a valid API key."}}""",
+        )
+        assertTrue(invalidKeyErr.contains("Invalid Gemini API Key"))
+
+        val quotaErr = client.parseApiErrorMessage(429, """{"error":{"message":"Quota exceeded"}}""")
+        assertTrue(quotaErr.contains("429"))
+    }
 }

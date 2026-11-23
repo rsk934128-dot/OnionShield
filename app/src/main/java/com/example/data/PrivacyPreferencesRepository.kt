@@ -65,6 +65,7 @@ class PrivacyPreferencesRepository(private val context: Context) {
         val SURFACE_DEVICE_SEED = stringPreferencesKey("surface_device_seed")
         val AUTHENTICATED_SESSION_HOSTS = stringSetPreferencesKey("authenticated_session_hosts")
         val SHOW_AI_OVERLAY_BUTTONS = booleanPreferencesKey("show_ai_overlay_buttons")
+        val ENCRYPTED_GEMINI_API_KEY = stringPreferencesKey("encrypted_gemini_api_key")
     }
 
     val securityConfig: Flow<SecurityConfig> = context.privacyDataStore.data.map { prefs ->
@@ -148,6 +149,10 @@ class PrivacyPreferencesRepository(private val context: Context) {
 
     val authenticatedSessionHosts: Flow<Set<String>> = context.privacyDataStore.data.map { prefs ->
         prefs[Keys.AUTHENTICATED_SESSION_HOSTS] ?: emptySet()
+    }
+
+    val encryptedGeminiApiKey: Flow<String?> = context.privacyDataStore.data.map { prefs ->
+        prefs[Keys.ENCRYPTED_GEMINI_API_KEY]?.takeIf { it.isNotBlank() }
     }
 
     suspend fun setBrowserMode(mode: BrowserMode) {
@@ -370,6 +375,22 @@ class PrivacyPreferencesRepository(private val context: Context) {
 
     suspend fun setShowAiOverlayButtons(enabled: Boolean) {
         context.privacyDataStore.edit { it[Keys.SHOW_AI_OVERLAY_BUTTONS] = enabled }
+    }
+
+    suspend fun saveEncryptedGeminiApiKey(encryptedPayload: String) {
+        context.privacyDataStore.edit { prefs ->
+            if (encryptedPayload.isBlank()) {
+                prefs.remove(Keys.ENCRYPTED_GEMINI_API_KEY)
+            } else {
+                prefs[Keys.ENCRYPTED_GEMINI_API_KEY] = encryptedPayload
+            }
+        }
+    }
+
+    suspend fun clearGeminiApiKey() {
+        context.privacyDataStore.edit { prefs ->
+            prefs.remove(Keys.ENCRYPTED_GEMINI_API_KEY)
+        }
     }
 
     suspend fun savePersistedMediaState(state: PersistedMediaState) {

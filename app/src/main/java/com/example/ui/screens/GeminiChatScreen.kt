@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Summarize
@@ -70,9 +71,11 @@ import com.example.data.BrowserMode
 import com.example.data.BrowserTab
 import com.example.data.SecurityConfig
 import com.example.data.repository.PageAiContext
+import com.example.security.GeminiApiKeyStore
 import com.example.ui.GeminiAssistantViewModel
 import com.example.ui.GeminiUiState
 import com.example.ui.components.ChatMessageRow
+import com.example.ui.components.GeminiApiKeyDialog
 import com.example.ui.components.ModelMessageCard
 import com.example.ui.theme.LocalShieldColors
 
@@ -83,13 +86,18 @@ fun GeminiChatScreen(
     securityConfig: SecurityConfig,
     extractPageSnippet: (tabId: String, onResult: (String) -> Unit) -> Unit,
     onNavigateBack: () -> Unit,
+    onSaveGeminiApiKey: (String) -> Unit = {},
+    onClearGeminiApiKey: () -> Unit = {},
     assistantViewModel: GeminiAssistantViewModel = viewModel(),
 ) {
     val shieldColors = LocalShieldColors.current
     val uiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
     val messages by assistantViewModel.messages.collectAsStateWithLifecycle()
+    val activeKeySource by GeminiApiKeyStore.activeSource.collectAsStateWithLifecycle()
+    val maskedUserKey by GeminiApiKeyStore.maskedUserKey.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
+    var showApiKeyDialog by remember { mutableStateOf(false) }
     var promptInput by remember { mutableStateOf("") }
     var pageSnippet by remember(activeTab.id, activeTab.url) { mutableStateOf("") }
     var attachPageContext by remember(activeTab.id, activeTab.url) { mutableStateOf(!activeTab.isStartPage) }
@@ -143,7 +151,7 @@ fun GeminiChatScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(R.string.gemini_ai_subtitle),
+                            text = activeKeySource.label,
                             style = MaterialTheme.typography.labelSmall,
                             color = shieldColors.surfaceAccent,
                             maxLines = 1,
@@ -163,6 +171,16 @@ fun GeminiChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { showApiKeyDialog = true },
+                        modifier = Modifier.testTag("gemini_open_api_key_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Key,
+                            contentDescription = stringResource(R.string.cd_gemini_key_action),
+                            tint = if (maskedUserKey != null) shieldColors.secureGreen else shieldColors.surfaceAccent,
+                        )
+                    }
                     if (messages.isNotEmpty()) {
                         IconButton(
                             onClick = { assistantViewModel.clearChat() },
@@ -538,9 +556,21 @@ fun GeminiChatScreen(
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    OutlinedButton(
+                                        onClick = { showApiKeyDialog = true },
+                                        modifier = Modifier.testTag("gemini_error_set_key_button"),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Key,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(stringResource(R.string.gemini_key_set_action), maxLines = 1)
+                                    }
                                     TextButton(
                                         onClick = { assistantViewModel.dismissError() },
                                         modifier = Modifier.testTag("gemini_dismiss_error_button"),
@@ -548,7 +578,6 @@ fun GeminiChatScreen(
                                         Text("Dismiss")
                                     }
                                     if (state.canRetry) {
-                                        Spacer(Modifier.width(8.dp))
                                         Button(
                                             onClick = { assistantViewModel.retryLastRequest() },
                                             modifier = Modifier.testTag("gemini_retry_button"),
@@ -565,5 +594,21 @@ fun GeminiChatScreen(
                 GeminiUiState.Idle, is GeminiUiState.Success -> Unit
             }
         }
+    }
+
+    if (showApiKeyDialog) {
+        GeminiApiKeyDialog(
+            activeSource = activeKeySource,
+            maskedUserKey = maskedUserKey,
+            onSaveKey = { newKey ->
+                onSaveGeminiApiKey(newKey)
+                showApiKeyDialog = false
+            },
+            onClearKey = {
+                onClearGeminiApiKey()
+                showApiKeyDialog = false
+            },
+            onDismiss = { showApiKeyDialog = false },
+        )
     }
 }

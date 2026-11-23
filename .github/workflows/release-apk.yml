@@ -58,6 +58,44 @@ jobs:
             echo "\`app/google-services.json\` was not found in the repository or GitHub Secrets. Add \`GOOGLE_SERVICES_JSON\` in **Settings → Secrets and variables → Actions** and re-run to enable AI Trade Pilot, Gemini Chat, and Firebase Cloud Sync." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Override recaptcha_site_key from GitHub Secret (if configured)
+        env:
+          RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+        run: |
+          if [ -n "$RECAPTCHA_SITE_KEY" ]; then
+            python3 - <<'PY'
+          import os, re, xml.sax.saxutils as sax
+          path = "app/src/main/res/values/firebase_applet_config.xml"
+          key = sax.escape(os.environ["RECAPTCHA_SITE_KEY"].strip())
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+          updated, count = re.subn(
+              r'(<string name="recaptcha_site_key"[^>]*>)[^<]*(</string>)',
+              rf'\g<1>{key}\g<2>',
+              content,
+          )
+          if count == 0:
+              updated = content.replace(
+                  "</resources>",
+                  f'    <string name="recaptcha_site_key" translatable="false">{key}</string>\n</resources>',
+              )
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(updated)
+          print("Updated recaptcha_site_key from GitHub Secret.")
+          PY
+          fi
+
+      - name: Configure GEMINI_API_KEY in .env from GitHub Secret (if set)
+        env:
+          GEMINI_API_KEY_SECRET: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$GEMINI_API_KEY_SECRET" ]; then
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY_SECRET" > .env
+            echo "GEMINI_KEY_STATUS=embedded from GitHub Secret" >> "$GITHUB_ENV"
+          else
+            echo "GEMINI_KEY_STATUS=not embedded (can be set inside app Settings -> Gemini API Key)" >> "$GITHUB_ENV"
+          fi
+
       - name: Accept Android SDK licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -185,6 +223,7 @@ jobs:
             - **AAB**: `OnionShield-${{ env.RELEASE_TAG }}-release.aab`
             - **SHA-256**: Included in `OnionShield-${{ env.RELEASE_TAG }}-release.apk.sha256`
             - **Firebase / AI Config**: `${{ env.FIREBASE_STATUS }}`
+            - **Direct Gemini API Key**: `${{ env.GEMINI_KEY_STATUS }}`
             - **Signing Mode**: `${{ env.SIGNING_MODE }}` (`production` uses `RELEASE_KEYSTORE_BASE64`; `ephemeral` uses a per-build CI key—configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD` for seamless in-place updates).
           files: |
             dist/OnionShield-${{ env.RELEASE_TAG }}-release.apk

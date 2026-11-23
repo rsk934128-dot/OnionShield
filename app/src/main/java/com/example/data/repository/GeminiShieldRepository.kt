@@ -52,7 +52,9 @@ data class PagePrivacyAudit(
     val recommendedAction: String,
 )
 
-open class GeminiShieldRepository {
+open class GeminiShieldRepository(
+    private val directRestClient: DirectGeminiRestClient = DirectGeminiRestClient(),
+) {
 
     private val chatModel by lazy {
         createChatModel(MODEL_NAME)
@@ -82,11 +84,7 @@ open class GeminiShieldRepository {
         Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = modelName,
             systemInstruction = content {
-                text(
-                    "You are OnionShield AI, a concise security, privacy, and research assistant " +
-                        "built inside the OnionShield privacy browser. Explain web privacy, Tor " +
-                        "networking, trackers, phishing signals, and web page summaries accurately and concisely.",
-                )
+                text(CHAT_SYSTEM_PROMPT)
             },
         )
 
@@ -108,15 +106,7 @@ open class GeminiShieldRepository {
                 responseSchema = TRADE_VISION_SCHEMA
             },
             systemInstruction = content {
-                text(
-                    "You are a decisive short-term technical price-action and UI vision analyst. " +
-                        "Inspect the live chart screenshot carefully: evaluate the latest price leg leading " +
-                        "to the active price dot/candle, recent swing bounce or rejection, higher-low vs " +
-                        "lower-high structure, and slope momentum. Choose BUY when recent momentum or bounce " +
-                        "favors upside, or SELL when momentum or rejection favors downside, with a realistic " +
-                        "directional confidence (50-95) and exact button coordinates. Return HOLD ONLY when " +
-                        "no trading chart or Buy/Sell buttons are visible or price is completely flat.",
-                )
+                text(TRADE_SYSTEM_PROMPT)
             },
         )
 
@@ -125,6 +115,17 @@ open class GeminiShieldRepository {
         userPrompt: String,
         pageContext: PageAiContext?,
     ): Flow<String> = flow {
+        val customApiKey = com.example.security.GeminiApiKeyStore.resolveActiveApiKey()
+        if (customApiKey != null) {
+            directRestClient.streamChat(
+                apiKey = customApiKey,
+                history = history,
+                userPrompt = userPrompt,
+                pageContext = pageContext,
+            ).collect { emit(it) }
+            return@flow
+        }
+
         val sdkHistory = buildSdkHistory(history)
         val fullPrompt = buildContextualPrompt(userPrompt, pageContext)
 
@@ -191,6 +192,13 @@ open class GeminiShieldRepository {
         sendChatMessageStream(history = emptyList(), userPrompt = prompt, pageContext = pageContext)
 
     open suspend fun runStructuredPrivacyAudit(pageContext: PageAiContext): PagePrivacyAudit {
+        val customApiKey = com.example.security.GeminiApiKeyStore.resolveActiveApiKey()
+        if (customApiKey != null) {
+            return directRestClient.runStructuredPrivacyAudit(
+                apiKey = customApiKey,
+                pageContext = pageContext,
+            )
+        }
         val prompt = buildString {
             appendLine("Analyze this web page context for user privacy, phishing/scam signals, and security posture:")
             appendLine("URL: ${pageContext.url}")
@@ -246,6 +254,16 @@ open class GeminiShieldRepository {
         domControlsSummary: String,
         visualTelemetrySummary: String = "",
     ): TradeSignalDecision {
+        val customApiKey = com.example.security.GeminiApiKeyStore.resolveActiveApiKey()
+        if (customApiKey != null) {
+            return directRestClient.analyzeScreenForTradeSignal(
+                apiKey = customApiKey,
+                screenshot = screenshot,
+                pageUrl = pageUrl,
+                domControlsSummary = domControlsSummary,
+                visualTelemetrySummary = visualTelemetrySummary,
+            )
+        }
         val promptText = buildTradeAnalysisPrompt(
             pageUrl = pageUrl,
             domControlsSummary = domControlsSummary,
@@ -298,6 +316,20 @@ open class GeminiShieldRepository {
         private const val PRIMARY_ATTEMPT_TIMEOUT_MS = 15_000L
         private const val FALLBACK_ATTEMPT_TIMEOUT_MS = 18_000L
         private const val FALLBACK_DELAY_MS = 300L
+
+        const val CHAT_SYSTEM_PROMPT =
+            "You are OnionShield AI, a concise security, privacy, and research assistant " +
+                "built inside the OnionShield privacy browser. Explain web privacy, Tor " +
+                "networking, trackers, phishing signals, and web page summaries accurately and concisely."
+
+        const val TRADE_SYSTEM_PROMPT =
+            "You are a decisive short-term technical price-action and UI vision analyst. " +
+                "Inspect the live chart screenshot carefully: evaluate the latest price leg leading " +
+                "to the active price dot/candle, recent swing bounce or rejection, higher-low vs " +
+                "lower-high structure, and slope momentum. Choose BUY when recent momentum or bounce " +
+                "favors upside, or SELL when momentum or rejection favors downside, with a realistic " +
+                "directional confidence (50-95) and exact button coordinates. Return HOLD ONLY when " +
+                "no trading chart or Buy/Sell buttons are visible or price is completely flat."
 
         fun isTransientHighDemandError(error: Throwable): Boolean {
             if (error is TimeoutCancellationException) return true

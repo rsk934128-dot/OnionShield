@@ -70,6 +70,7 @@ import com.example.data.repository.DecryptedSearchHistoryItem
 import com.example.data.repository.EncryptedSearchHistoryRepository
 import com.example.data.repository.GeminiShieldRepository
 import com.example.data.repository.SessionMonitorFirestoreRepository
+import com.example.security.GeminiApiKeyStore
 import com.example.security.VaultCryptoManager
 import com.example.security.diagnoseAppCheckFailure
 import com.example.security.ensureFirebaseAndAppCheckInitialized
@@ -367,6 +368,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             prefsRepo.vaultWrappedDek.collectLatest { envelope ->
                 _uiState.update { it.copy(wrappedVaultDek = envelope) }
+            }
+        }
+
+        viewModelScope.launch {
+            prefsRepo.encryptedGeminiApiKey.collectLatest { encryptedPayload ->
+                val decrypted = GeminiApiKeyStore.decryptFromStorage(getApplication(), encryptedPayload)
+                GeminiApiKeyStore.setUserApiKey(decrypted)
             }
         }
 
@@ -2053,6 +2061,39 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         setAiOverlayButtonsVisible(next)
     }
 
+    fun saveCustomGeminiApiKey(rawKey: String) {
+        val clean = GeminiApiKeyStore.normalizeApiKey(rawKey)
+        if (clean == null) {
+            clearCustomGeminiApiKey()
+            return
+        }
+        GeminiApiKeyStore.setUserApiKey(clean)
+        viewModelScope.launch {
+            val encrypted = GeminiApiKeyStore.encryptForStorage(getApplication(), clean)
+            if (encrypted.isNotEmpty()) {
+                prefsRepo.saveEncryptedGeminiApiKey(encrypted)
+            }
+            _uiState.update { state ->
+                state.copy(
+                    tradePilot = state.tradePilot.copy(lastError = null),
+                    statusBannerMessage = "Direct Gemini API key saved (AES-256 encrypted).",
+                )
+            }
+        }
+    }
+
+    fun clearCustomGeminiApiKey() {
+        GeminiApiKeyStore.setUserApiKey(null)
+        viewModelScope.launch {
+            prefsRepo.clearGeminiApiKey()
+            _uiState.update { state ->
+                state.copy(
+                    statusBannerMessage = "Custom Gemini API key cleared.",
+                )
+            }
+        }
+    }
+
     fun setTradeMinConfidence(percent: Int) {
         val clamped = percent.coerceIn(50, 95)
         _uiState.update { state ->
@@ -2218,13 +2259,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             )
         }
 
-        if (!ensureFirebaseAndAppCheckInitialized(getApplication())) {
+        if (!GeminiApiKeyStore.hasActiveApiKey() && !ensureFirebaseAndAppCheckInitialized(getApplication())) {
             _uiState.update { state ->
                 state.copy(
                     tradePilot = state.tradePilot.copy(
                         isAnalyzing = false,
                         isAutoPilotRunning = false,
-                        lastError = "Firebase AI is not configured in this APK build (missing google-services.json). Set GOOGLE_SERVICES_JSON secret in GitHub and rebuild APK, or build from AI Studio.",
+                        lastError = "Firebase AI is not configured in this APK build. Tap 'Set API Key' below to enter your Gemini API key, or configure GOOGLE_SERVICES_JSON / GEMINI_API_KEY in GitHub Secrets.",
                     ),
                 )
             }

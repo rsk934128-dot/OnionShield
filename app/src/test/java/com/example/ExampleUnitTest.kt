@@ -362,14 +362,52 @@ class ExampleUnitTest {
             rawMessage = "Firebase App Check token is invalid.",
             isDebugBuild = true,
         )
-        assertTrue(debugMsg.contains("Release Android APK"))
+        assertTrue(debugMsg.contains("Set API Key"))
 
         val releaseMsg = com.example.security.formatAppCheckErrorMessage(
             rawMessage = "Firebase App Check token is invalid.",
             isDebugBuild = false,
             diagnosticDetail = "project=gen-lang-client-0814260017, tokenErr(RecaptchaException: INVALID_SITEKEY)",
         )
-        assertTrue(releaseMsg.contains("Google Play Services"))
+        assertTrue(releaseMsg.contains("Set API Key"))
         assertTrue(releaseMsg.contains("INVALID_SITEKEY"))
+    }
+
+    @Test
+    fun geminiApiKeyStore_normalizesMasksAndSwitchesSources() {
+        val store = com.example.security.GeminiApiKeyStore
+        store.setUserApiKey(null)
+        assertNull(store.normalizeApiKey(null))
+        assertNull(store.normalizeApiKey("   "))
+        assertNull(store.normalizeApiKey("\"DEFAULT_VALUE\""))
+        assertNull(store.normalizeApiKey("YOUR_API_KEY"))
+        assertEquals("AIzaSyTest123456", store.normalizeApiKey("  'AIzaSyTest123456' "))
+        assertEquals("AIza••••••3456", store.maskApiKey("AIzaSyTest123456"))
+        assertEquals("••••56", store.maskApiKey("123456"))
+
+        try {
+            store.setUserApiKey("  AIzaSyUnitTestKey9876  ")
+            assertTrue(store.hasUserCustomKey())
+            assertTrue(store.hasActiveApiKey())
+            assertEquals("AIzaSyUnitTestKey9876", store.resolveActiveApiKey())
+            assertEquals(com.example.security.GeminiKeySource.USER_CUSTOM, store.activeSource.value)
+            assertEquals("AIza••••••9876", store.maskedUserKey.value)
+        } finally {
+            store.setUserApiKey(null)
+        }
+        assertFalse(store.hasUserCustomKey())
+    }
+
+    @Test
+    fun directGeminiRestClient_stripsMarkdownJsonFences() {
+        val fenced = "```json\n{\"decision\":\"BUY\",\"confidence\":82}\n```"
+        assertEquals(
+            "{\"decision\":\"BUY\",\"confidence\":82}",
+            com.example.data.repository.DirectGeminiRestClient.stripOptionalJsonFences(fenced),
+        )
+        assertEquals(
+            "{\"decision\":\"HOLD\"}",
+            com.example.data.repository.DirectGeminiRestClient.stripOptionalJsonFences("  {\"decision\":\"HOLD\"}  "),
+        )
     }
 }

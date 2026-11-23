@@ -295,6 +295,8 @@ class MainActivity : FragmentActivity() {
                                 browserViewModel.webViewPool.extractPageTextSnippet(tabId, callback)
                             },
                             onNavigateBack = { navController.popBackStack() },
+                            onSaveGeminiApiKey = browserViewModel::saveCustomGeminiApiKey,
+                            onClearGeminiApiKey = browserViewModel::clearCustomGeminiApiKey,
                         )
                     }
                     }

@@ -76,6 +76,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.browser.TorProxyController
 import com.example.data.SecurityConfig
+import com.example.security.GeminiApiKeyStore
 import com.example.ui.BrowserUiState
 import com.example.ui.BrowserViewModel
 import com.example.ui.components.BackgroundKeepAliveCard
@@ -83,6 +84,7 @@ import com.example.ui.components.BatteryOptimizationCard
 import com.example.ui.components.CircuitDiagnosticSheet
 import com.example.ui.components.CircuitPrivacyLevelCard
 import com.example.ui.components.CustomExceptionsAndAdBlockCard
+import com.example.ui.components.GeminiApiKeySettingsCard
 import com.example.ui.components.LegalDisclaimerCard
 import com.example.ui.components.SearchEngineCard
 import com.example.ui.components.TorProxyRoutingCard
@@ -103,6 +105,8 @@ fun SecuritySettingsScreen(
 
     var showCircuitDiagnostics by remember { mutableStateOf(false) }
     val isForegroundServiceRunning by viewModel.isForegroundServiceRunning.collectAsStateWithLifecycle()
+    val geminiKeySource by GeminiApiKeyStore.activeSource.collectAsStateWithLifecycle()
+    val maskedGeminiKey by GeminiApiKeyStore.maskedUserKey.collectAsStateWithLifecycle()
     var notificationDeniedNote by remember { mutableStateOf<String?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -196,6 +200,16 @@ fun SecuritySettingsScreen(
                         Text("Server Admin Settings ('admin' Claim Required)")
                     }
                 }
+            }
+
+            // 1b. Direct Gemini API Key (App Check Bypass / Build Secret)
+            item {
+                GeminiApiKeySettingsCard(
+                    activeSource = geminiKeySource,
+                    maskedUserKey = maskedGeminiKey,
+                    onSaveKey = viewModel::saveCustomGeminiApiKey,
+                    onClearKey = viewModel::clearCustomGeminiApiKey,
+                )
             }
 
             // 2. Individual Privacy Feature Toggles Card

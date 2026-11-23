@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoGraph
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.TouchApp
@@ -171,6 +172,7 @@ fun TradePilotHudCard(
     onToggleAutoPilot: (Boolean) -> Unit,
     onSelectMinConfidence: (Int) -> Unit,
     onDismiss: () -> Unit,
+    onOpenApiKeyDialog: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val shieldColors = LocalShieldColors.current
@@ -318,14 +320,42 @@ fun TradePilotHudCard(
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        text = tradePilot.lastError,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
+                    Column(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = tradePilot.lastError,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            OutlinedButton(
+                                onClick = onOpenApiKeyDialog,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .testTag("trade_pilot_set_key_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Key,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.size(4.dp))
+                                Text(
+                                    text = stringResource(R.string.gemini_key_set_action),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

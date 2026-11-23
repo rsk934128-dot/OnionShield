@@ -165,9 +165,9 @@ fun formatAppCheckErrorMessage(
 ): String {
     val base = rawMessage.trim().ifBlank { "Firebase App Check token is invalid." }
     val guidance = if (isDebugBuild) {
-        "$base Debug APKs require AI Studio Preview or a registered Firebase App Check debug token. Install the signed Release APK from GitHub 'Release Android APK' for personal phone use."
+        "$base Tap 'Set API Key' to enter your personal Gemini API key and run directly on any phone without App Check."
     } else {
-        "$base Ensure Google Play Services & internet are reachable (disable VPN/Tor briefly if blocked) and verify App Check reCAPTCHA Enterprise is linked for this package in Firebase."
+        "$base Tap 'Set API Key' below to enter your personal Gemini API key and bypass Firebase App Check on this phone."
     }
     return if (diagnosticDetail.isNullOrBlank()) {
         guidance
